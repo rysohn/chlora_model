@@ -98,6 +98,22 @@
         <p>Average Chlorophyll-a: <span id="chl-result" class="highlight">Loading...</span> mg/m³</p>
         <p>Matching Data Points: <span id="count-result" class="highlight">--</span></p>
     </div>
+    <div id="table-container" style="margin-top: 2rem; border-top: 2px solid #eee; padding-top: 1rem;">
+        <h3 style="margin-bottom: 1rem;">Top 10 Highest Chlorophyll Points</h3>
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+            <thead>
+                <tr style="background-color: #f8f9fa; text-align: left;">
+                    <th style="padding: 8px; border-bottom: 2px solid #ccc;">Month</th>
+                    <th style="padding: 8px; border-bottom: 2px solid #ccc;">Lat</th>
+                    <th style="padding: 8px; border-bottom: 2px solid #ccc;">Lon</th>
+                    <th style="padding: 8px; border-bottom: 2px solid #ccc;">SST</th>
+                    <th style="padding: 8px; border-bottom: 2px solid #ccc;">Chl-a</th>
+                </tr>
+            </thead>
+            <tbody id="top-points-body">
+                </tbody>
+        </table>
+    </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>

@@ -49,16 +49,36 @@ async function updateDashboard() {
     }
 
     // UPDATE THE UI
-    const result = data[0]; // Our SQL function returns an array with 1 row
+    const result = data[0]; 
+    const tbody = document.getElementById('top-points-body');
+    
+    // Clear out the old table rows every time a filter changes
+    tbody.innerHTML = ''; 
+
     if (result && result.total_points > 0) {
         chlDisplay.innerText = result.avg_chl;
         countDisplay.innerText = result.total_points.toLocaleString();
         
-        // FUTURE STEP: result.map_points contains the 1,000 dots for your map!
-        console.log("Sample of points for mapping:", result.map_points);
+        // Loop through the top 10 points and create a table row for each
+        if (result.top_points) {
+            result.top_points.forEach(pt => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${pt.month}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${pt.latitude}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${pt.longitude}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${pt.sst}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; color: #0056b3;">${pt.chlor_a}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
     } else {
         chlDisplay.innerText = "0.00";
         countDisplay.innerText = "0 (No matches)";
+        
+        // Let the user know the table is empty
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 1rem;">No data matching these filters.</td></tr>';
     }
 }
 
