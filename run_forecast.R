@@ -16,7 +16,7 @@ SLA_TRAIN_MEAN <- 0.05015792
 SLA_TRAIN_SD   <- 0.08898371
 CURRENT_ONI    <- -0.4
 
-end_date <- as.character(Sys.Date() - 1)
+end_date <- as.character(Sys.Date() - 2)
 start_date <- as.character(Sys.Date() - 7)
 time_window <- c(start_date, end_date)
 cat("Pulling satellite data from:", start_date, "to", end_date, "\n")
