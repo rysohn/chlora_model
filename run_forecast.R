@@ -66,8 +66,7 @@ live_forecast <- live_sst_weekly %>%
   filter(!is.na(sst_scaled) & !is.na(sla_scaled))
 
 cat("Loading GAM model and predicting...\n")
-# Ensure you have uploaded your final gam_model.rds to the /models folder in your repo!
-gam_model <- readRDS("models/gam_model.rds")
+gam_model <- readRDS("models/gam_model_shrunk.rds")
 
 live_forecast$predicted_log_chlor <- predict(gam_model, newdata = live_forecast)
 live_forecast$predicted_chlor_actual <- exp(live_forecast$predicted_log_chlor)
