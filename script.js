@@ -68,6 +68,8 @@ async function updateDashboard() {
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">${pt.latitude}</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">${pt.longitude}</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">${pt.sst}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${pt.sla}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${pt.oni}</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; color: #0056b3;">${pt.chlor_a}</td>
                 `;
                 tbody.appendChild(tr);
