@@ -1,0 +1,10 @@
+*.parquet
+*.nc
+*.csv
+*.RData
+*.Rhistory
+*.twb
+*.twbr
+*.grib
+*.RData*
+output/

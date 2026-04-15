@@ -1,0 +1,654 @@
+---
+title: "chlorophyll_research"
+output: html_document
+date: "2026-03-27"
+---
+
+```{r setup, include=FALSE, warning=F}
+knitr::opts_chunk$set(echo = TRUE)
+library(terra)
+library(tidyverse)
+library(lubridate)
+library(rerddap)
+library(plotdap)
+library(broom)
+library(fuzzyjoin)
+library(tidync)
+library(arrow)
+library(sf)
+library(car)
+library(lme4)
+library(MuMIn)
+library(ggeffects)
+library(ggcorrplot)
+library(Metrics)
+library(mgcv)
+library(ranger)
+#chlor_master <- read_parquet('chlor_master.parquet')
+#sst_master <- read_parquet('sst_master.parquet')
+#sla_master <- read_parquet('sla_master.parquet')
+#master_dataset <- read_parquet('master_dataset.parquet')
+master2 <- read_parquet('master2.parquet')
+#mod_spatial <- readRDS('mod_spatial.rds')
+sst_prediction <- readRDS('sst_prediction.rds')
+interaction_prediction <- readRDS('interaction_prediction.rds')
+#live_forecast <- read.csv('live_forecast.csv')
+#daily_master_dataset <- read_parquet('daily_master_dataset.parquet')
+gam_model <- readRDS('gam_model.rds')
+```
+
+# Linear Models
+
+```{r}
+mod1 <- lm(log(chlor_a) ~ sst + sla + as.factor(month(date)) + oni_lag8, data=master2)
+summary(mod1)
+
+mod2 <- lm(log(chlor_a) ~ sst + sla + longitude + latitude + as.factor(month(date)) + oni_lag8, data=master2)
+summary(mod2)
+
+mod3 <- lm(log(chlor_a) ~ sst * as.factor(month(date)) + sla * oni_lag8, data=master2)
+summary(mod3)
+
+mod4 <- lm(log(chlor_a) ~ poly(sst, 2)*as.factor(month(date)) + sla*oni_lag8, data=master2)
+summary(mod4)
+
+AIC(mod3, mod4)
+BIC(mod3, mod4)
+
+
+sqrt(mean(mod1$residuals^2))
+sqrt(mean(mod2$residuals^2))
+```
+
+# Variance Tables
+
+```{r}
+aov <- Anova(mod4, type=2)
+
+var_tab <- as.data.frame(aov)
+
+tot_sum_sq <- sum(var_tab$`Sum Sq`)
+var_tab <- var_tab %>%
+  mutate(pcnt_of_total = (`Sum Sq`/tot_sum_sq)*100,
+  exp_ss = sum(`Sum Sq`[rownames(var_tab) != "Residuals"]),
+    pcnt_of_model = ifelse(
+      rownames(var_tab) == "Residuals", 
+      NA, 
+      (`Sum Sq` / exp_ss) * 100
+    )
+  ) %>%
+  select(`Sum Sq`, pcnt_of_total, pcnt_of_model)
+
+var_tab
+```
+
+# Mixed Effects Model
+
+```{r}
+mod_spatial <- lmer(
+  formula = log(chlor_a) ~ poly(sst, 2, raw=T) * as.factor(month(date)) + sla * oni_lag8 + (1 | pixel_id), 
+  data = master2,
+  control = lmerControl(optimizer = "bobyqa") 
+)
+summary(mod_spatial)
+r.squaredGLMM(mod_spatial)
+
+Anova(mod_spatial, type = "III")
+
+
+mod_spatial2 <- lmer(
+  formula = log(chlor_a) ~ poly(sst_scaled, 2, raw=T) * as.factor(month(date)) + sla_scaled * oni_lag8 + sst_tpi_scaled + (1 | pixel_id),
+  data = master2,
+  control = lmerControl(optimizer = 'bobyqa')
+)
+summary(mod_spatial2)
+r.squaredGLMM(mod_spatial2)
+
+saveRDS(mod_spatial, 'mod_spatial.rds')
+
+mod_spatial3 <- lmer(
+  formula = log(chlor_a) ~ poly(sst, 2, raw=T) * as.factor(month(date)) + poly(sst_lag1, 2, raw=T) + sla_lag1 + sla * sla_lag1 * sla_lag2 * oni_lag8 + (1 | pixel_id),
+  data = master2,
+  control = lmerControl(optimizer = 'bobyqa')
+)
+
+
+mod_spatial_scaled <- lmer(
+  formula = log(chlor_a) ~ poly(sst_scaled, 2, raw=T) * as.factor(month(date)) + sla_scaled * oni_lag8_scaled + (1 | pixel_id), 
+  data = master2,
+  control = lmerControl(optimizer = "bobyqa") 
+)
+summary(mod_spatial_scaled)
+r.squaredGLMM(mod_spatial_scaled)
+saveRDS(mod_spatial_scaled, 'mod_spatial_scaled.rds')
+
+```
+
+# Correlation Matrix
+
+```{r, warning=F}
+cor_data <- master2 %>%
+  select(chlor_a, sst, sla, oni_lag8) %>%
+  mutate(log_chlor = log(chlor_a)) %>%
+  select(-chlor_a) %>% 
+  drop_na()
+cor_matrix <- cor(cor_data, method = "pearson")
+
+ggcorrplot(
+  cor_matrix,
+  method = "circle",
+  type = "lower", 
+  lab = TRUE, 
+  lab_size = 4,
+  title = "Correlation Matrix"
+)
+```
+
+# Graphing Baseline
+
+```{r}
+random_effects <- ranef(mod_spatial)$pixel_id
+
+spatial_map <- random_effects %>%
+  tibble::rownames_to_column(var = "pixel_id") %>%
+  rename(baseline_shift = `(Intercept)`) %>%
+  separate(pixel_id, into = c("latitude", "longitude"), sep = "_", convert = TRUE)
+
+ggplot(spatial_map, aes(x = longitude, y = latitude, fill = baseline_shift)) +
+  geom_tile() +
+  scale_fill_viridis_c(option = "D", name = "(Log Chlorophyll)") +
+  labs(
+    title = "Chlorophyll Baseline",
+    x = "Longitude", 
+    y = "Latitude"
+  ) +
+  theme_minimal(base_size = 14) +
+  coord_quickmap()
+
+```
+
+# Visualize Relationships
+
+```{r}
+sst_prediction <- ggpredict(mod_spatial, terms = "sst [all]")
+interaction_prediction <- ggpredict(mod_spatial, terms = c("sla [all]", "oni_lag8 [-1.5, 0, 1.5]"))
+
+
+plot(sst_prediction) +
+  labs(
+    title = "Optimal Temp",
+    x = "Sea Surface Temperature (°C)",
+    y = "Predicted log(Chlorophyll)"
+  ) +
+  theme_minimal()
+
+
+plot(interaction_prediction) +
+  labs(
+    title = "ONI Effect",
+    x = "Sea Level Anomaly (Meters)",
+    y = "Predicted log(Chlorophyll)",
+    color = "ONI"
+  ) +
+  theme_minimal()
+
+
+write_rds(sst_prediction, 'sst_prediction.rds')
+write_rds(interaction_prediction, 'interaction_prediction.rds')
+```
+
+# Prediction
+
+```{r}
+local <- data.frame(
+  sst = 22.0,
+  sla = -0.15,
+  oni_lag8 = 1.5,
+  date = as.Date("2026-05-15")
+)
+
+exp(predict(mod_spatial, newdata = local, re.form=NA))
+
+
+```
+
+# Live Predictions
+
+```{r}
+sst_train_mean <- mean(master2$sst, na.rm = TRUE)
+sst_train_sd   <- sd(master2$sst, na.rm = TRUE)
+sla_train_mean <- mean(master2$sla, na.rm = TRUE)
+sla_train_sd   <- sd(master2$sla, na.rm = TRUE)
+
+
+end_date <- as.character(Sys.Date() - 1)
+start_date <- as.character(Sys.Date() - 7)
+time_window <- c(start_date, end_date)
+
+live_sst_raw <- griddap(
+  datasetx = "jplMURSST41",
+  time = time_window,
+  latitude = c(18, 24),
+  longitude = c(-110, -104),
+  fields = "analysed_sst"
+)
+
+live_sst_weekly <- live_sst_raw$data %>%
+  filter(!is.na(analysed_sst)) %>%
+  mutate(
+    lat_grid = round((latitude - 0.125) / 0.25) * 0.25 + 0.125,
+    lon_grid = round((longitude - 0.125) / 0.25) * 0.25 + 0.125
+  ) %>%
+  # Group ONLY by coordinates to average across the 7 days
+  group_by(lat_grid, lon_grid) %>%
+  summarize(sst_weekly_avg = mean(analysed_sst, na.rm = TRUE), .groups = "drop") %>%
+  mutate(
+    pixel_id = as.factor(paste(lat_grid, lon_grid, sep = "_"))
+  ) %>%
+  select(latitude = lat_grid, longitude = lon_grid, pixel_id, sst_weekly_avg)
+
+live_sla_raw <- griddap(
+  datasetx = "noaacwBLENDEDsshDaily",
+  url = "https://coastwatch.noaa.gov/erddap/",
+  time = time_window,
+  latitude = c(18, 24),
+  longitude = c(-110, -104),
+  fields = "sla"
+)
+
+live_sla_weekly <- live_sla_raw$data %>%
+  filter(!is.na(sla)) %>%
+  mutate(
+    pixel_id = as.factor(paste(round(latitude, 3), round(longitude, 3), sep = "_"))
+  ) %>%
+  group_by(pixel_id) %>%
+  summarize(sla_weekly_avg = mean(sla, na.rm = TRUE), .groups = "drop")
+
+live_forecast <- live_sst_weekly %>%
+  inner_join(live_sla_weekly, by = 'pixel_id') %>%
+  mutate(
+    sst_scaled = as.numeric((sst_weekly_avg - sst_train_mean) / sst_train_sd),
+    sla_scaled = as.numeric((sla_weekly_avg - sla_train_mean) / sla_train_sd),
+    oni_lag8 = -0.2,
+    month = as.numeric(format(Sys.Date(), "%m"))
+  )
+
+live_forecast$predicted_log_chlor <- predict(gam_model, newdata = live_forecast)
+live_forecast$predicted_chlor_actual <- exp(live_forecast$predicted_log_chlor)
+
+live_forecast %>%
+  arrange(desc(predicted_chlor_actual)) %>%
+  select(latitude, longitude, predicted_chlor_actual, sst_weekly_avg, sla_weekly_avg) %>%
+  head(10)
+```
+
+
+```{r}
+geo_memory <- ranef(mod_spatial)$pixel_id %>%
+  tibble::rownames_to_column("pixel_id_train") %>%
+  rename(geo_baseline = `(Intercept)`) %>%
+  separate(pixel_id_train, into = c("lat_train", "lon_train"), sep = "_", convert = TRUE) %>%
+  mutate(
+    lat_join = round(lat_train, 3),
+    lon_join = round(lon_train, 3)
+  )
+
+grid_size <- 1/24
+offset <- 1/48
+
+live_sst_4km <- live_sst %>%
+  mutate(
+    lat_join = round(round((latitude - offset) / grid_size) * grid_size + offset, 3),
+    lon_join = round(round((longitude - offset) / grid_size) * grid_size + offset, 3)
+  ) %>%
+  group_by(lat_join, lon_join) %>%
+  summarize(sst = mean(sst, na.rm = TRUE), .groups = "drop")
+
+live_sla_4km <- live_sla %>%
+  mutate(
+    lat_join = round(round((latitude - offset) / grid_size) * grid_size + offset, 3),
+    lon_join = round(round((longitude - offset) / grid_size) * grid_size + offset, 3)
+  ) %>%
+  group_by(lat_join, lon_join) %>%
+  summarize(sla = mean(sla, na.rm = TRUE), .groups = "drop")
+
+live_forecast <- geo_memory %>%
+  left_join(live_sst_4km, by = c("lat_join", "lon_join")) %>%
+  left_join(live_sla_4km, by = c("lat_join", "lon_join")) %>%
+  filter(!is.na(sst) & !is.na(sla)) %>%
+  mutate(
+    oni_lag8 = -0.4,
+    date = as.Date(forecast_date) 
+  )
+
+live_forecast$physics_baseline <- predict(mod_spatial, newdata = live_forecast, re.form = NA)
+live_forecast$chlorophyll_mg_m3 <- exp(live_forecast$physics_baseline + live_forecast$geo_baseline)
+live_forecast
+write.csv(live_forecast, 'live_forecast.csv')
+```
+
+# Daily Model
+
+```{r}
+clean_daily <- daily_master_dataset %>%
+  filter(!is.na(chlor_a)) %>%
+  filter(!is.na(sst_lag1)) %>%
+  filter(!is.na(sst_lag2)) %>%
+  filter(!is.na(sla_lag1)) %>%
+  filter(!is.na(sla_lag2)) %>%
+  filter(!is.na(oni_lag28)) %>%
+  filter(!is.na(oni_lag56)) %>%
+  mutate(pixel_id = as.factor(paste(latitude, longitude, sep = "_")))
+
+
+daily_model <- lmer(
+  formula = log(chlor_a) ~ poly(sst, 2, raw=T) * as.factor(month(date)) + sla * oni_lag56 + (1 | pixel_id), 
+  data = clean_daily,
+  control = lmerControl(optimizer = "bobyqa") 
+)
+
+summary(daily_model)
+r.squaredGLMM(daily_model)
+
+
+full_daily_model <- lmer(
+  formula = log(chlor_a) ~ poly(sst_lag1, 2, raw=T) + as.factor(month(date)) + sla_lag1 * oni_lag56 + (1 | pixel_id), 
+  data = clean_daily,
+  control = lmerControl(optimizer = "bobyqa") 
+)
+
+summary(full_daily_model)
+r.squaredGLMM(full_daily_model)
+
+AIC(final_gam_model, mod_spatial)
+BIC(final_gam_model, mod_spatial)
+```
+
+# Random Forest
+
+```{r}
+test_set1 <- test_set %>%
+  filter(year(date) != 2014)
+test_set2 <- test_set %>%
+  filter(year(date) == 2014)
+
+rf_data <- test_set1 %>%
+  mutate(
+    month = as.factor(month(date))
+  ) %>%
+  select(chlor_a, sst, sla, oni_lag8, eke, month) %>%
+  filter(!is.na(chlor_a))
+test_set2 <- test_set2 %>%
+  mutate(
+    month = as.factor(month(date))
+  ) %>%
+  select(chlor_a, sst, sla, oni_lag8, eke, month) %>%
+  filter(!is.na(chlor_a))
+
+
+rf_model <- ranger(
+  formula = log(chlor_a) ~ ., 
+  data = rf_data,
+  num.trees = 500,
+  mtry = 2,
+  min.node.size = 50,
+  importance = "permutation",
+  seed = 42
+)
+
+print(rf_model)
+
+
+test_predictions <- predict(rf_model, data = test_set2)
+eval_data <- test_set2 %>%
+  mutate(
+    predicted_log = test_predictions$predictions,
+    actual_log = log(chlor_a)
+  ) %>%
+  filter(is.finite(actual_log) & is.finite(predicted_log))
+
+true_mse <- mean((eval_data$actual_log - eval_data$predicted_log)^2, na.rm = TRUE)
+true_rmse <- sqrt(true_mse)
+
+actual_mean <- mean(eval_data$actual_log, na.rm = TRUE)
+ss_total <- sum((eval_data$actual_log - actual_mean)^2, na.rm = TRUE)
+ss_residual <- sum((eval_data$actual_log - eval_data$predicted_log)^2, na.rm = TRUE)
+true_r_squared <- 1 - (ss_residual / ss_total)
+
+
+cat("Valid Observations: ", nrow(eval_data), "\n")
+cat("RMSE (Log Scale): ", true_rmse, "\n")
+cat("R-Squared: ", true_r_squared, "\n")
+
+
+
+```
+
+# GAM Model
+
+```{r}
+gam_model <- bam(
+  formula = log(chlor_a) ~ 
+    s(sst_scaled, k=20)+ 
+    s(sla_scaled, k=20) + 
+    s(oni_lag8, k=5) + 
+    s(month, bs='cc', k=12) + 
+    ti(sst_scaled, sla_scaled, k=c(8, 8)) + 
+    s(longitude, latitude, k=300),
+  data = master2,
+  method = "fREML", 
+  discrete = TRUE,   
+  trace = TRUE
+)
+
+summary(gam_model)
+plot(gam_model, pages = 1, scheme = 2, shade.col = "lightblue")
+
+
+par(mfrow = c(2, 2)) 
+gam.check(gam_model)
+par(mfrow = c(1, 1))
+
+log_predictions <- predict(gam_model)
+real_predictions <- exp(log_predictions)
+actual_chlor <- master2$chlor_a
+real_rmse <- sqrt(mean((actual_chlor - real_predictions)^2, na.rm = TRUE))
+real_rmse
+
+master2_complete <- master2 %>%
+  drop_na(chlor_a, sst_scaled, sla_scaled, oni_lag8, sst_tpi_scaled, longitude, latitude)
+actual_chlor <- master2_complete$chlor_a
+
+performance_check <- data.frame(
+  Date = master2_complete$date,
+  Longitude = master2_complete$longitude,
+  Latitude = master2_complete$latitude,
+  Actual_Chlor = actual_chlor,
+  Predicted_Chlor = real_predictions
+) %>%
+  mutate(
+    Error = Actual_Chlor - Predicted_Chlor,
+    Percent_Miss = abs(Error) / Actual_Chlor * 100
+  )
+
+performance_check %>% 
+  arrange(desc(abs(Error))) %>% 
+  head(20)
+```
+
+
+
+
+```{r}
+master2_binary <- master2 %>%
+  mutate(is_bloom = ifelse(chlor_a > 15, 1, 0)) %>%
+  drop_na(is_bloom, sst_scaled, sla_scaled, oni_lag8, sst_tpi_scaled, longitude, latitude)
+
+gam_prob_model <- bam(
+  is_bloom ~ 
+    s(sst_scaled, k = 20) + 
+    s(sla_scaled, k = 20) + 
+    s(oni_lag8, k = 5) +
+    s(sst_tpi_scaled, k = 20) + 
+    s(month, bs = "cc", k = 12) +
+    ti(sst_scaled, sla_scaled) + 
+    s(longitude, latitude, k = 300),
+  
+  data = master2_binary,
+  family = binomial(link = "logit"),
+  method = "fREML", 
+  discrete = TRUE
+)
+summary(gam_prob_model)
+```
+
+# Backtesting
+
+```{r}
+expected_oni <- -0.2
+test_set <- master2 %>%
+  filter(month(date) == 5) %>%
+  filter(oni_lag8 >= (expected_oni - 0.3) & oni_lag8 <= (expected_oni + 0.3)) %>%
+  filter(!is.na(chlor_a))
+
+
+test_set$predicted_log <- predict(mod_spatial, newdata = test_set, allow.new.levels = TRUE)
+test_set$predicted_chlor <- exp(test_set$predicted_log)
+
+scenario_rmse <- rmse(test_set$chlor_a, test_set$predicted_chlor)
+scenario_mae  <- mae(test_set$chlor_a, test_set$predicted_chlor)
+
+cat("Performance in Expected May Conditions:\n")
+cat("RMSE (Average error):", round(scenario_rmse, 3), "\n")
+cat("MAE (Median absolute error):", round(scenario_mae, 3), "\n")
+
+bias <- mean(test_set$predicted_chlor - test_set$chlor_a)
+if(bias > 0) {
+  cat("Bias: The model tends to OVER-predict chlorophyll in these conditions by", round(abs(bias), 3), "\n")
+} else {
+  cat("Bias: The model under-predicts chlorophyll in these conditions by", round(abs(bias), 3), "\n")
+}
+
+```
+
+# Backtesting GAM Model
+
+```{r}
+expected_oni <- -0.2
+test_set_gam <- master2 %>%
+  filter(month(date) == 5) %>%
+  filter(oni_lag8 >= (expected_oni - 0.3) & oni_lag8 <= (expected_oni + 0.3)) %>%
+  filter(!is.na(chlor_a))
+
+
+test_set_gam$predicted_log <- predict(updated_lmer, newdata = test_set, allow.new.levels = TRUE)
+test_set_gam$predicted_chlor <- exp(test_set_gam$predicted_log)
+
+scenario_rmse_gam <- rmse(test_set_gam$chlor_a, test_set_gam$predicted_chlor)
+scenario_mae_gam  <- mae(test_set_gam$chlor_a, test_set_gam$predicted_chlor)
+
+cat("Performance in Expected May Conditions:\n")
+cat("RMSE (Average error in mg/m3):", round(scenario_rmse_gam, 3), "\n")
+cat("MAE (Median absolute error in mg/m3):", round(scenario_mae_gam, 3), "\n")
+
+bias2 <- mean(test_set_gam$predicted_chlor - test_set_gam$chlor_a)
+if(bias2 > 0) {
+  cat("Bias: The model tends to OVER-predict chlorophyll in these conditions by", round(abs(bias2), 3), "\n")
+} else {
+  cat("Bias: The model tends to UNDER-predict chlorophyll in these conditions by", round(abs(bias2), 3), "\n")
+}
+
+```
+
+# Calculating Eddies
+
+```{r}
+master2 <- master2 %>%
+  mutate(eke = 0.5 * (ugosa^2 + vgosa^2) * 10000)
+
+pixel_eke <- test_set %>%
+  group_by(latitude, longitude, pixel_id) %>%
+  summarize(mean_eke = mean(eke, na.rm = TRUE), .groups = "drop")
+
+error_physics <- pixel_error_map %>%
+  left_join(pixel_eke, by = c("latitude", "longitude", "pixel_id"))
+
+cor(error_physics$pixel_bias, error_physics$mean_eke)
+
+write.csv(error_physics, 'error_physics.csv')
+```
+
+# Master Eddies
+
+```{r}
+eddy_threshold <- quantile(master2$eke, 0.90, na.rm = TRUE)
+
+eddy_composite <- master2 %>%
+  mutate(
+    water_state = case_when(
+      eke >= eddy_threshold ~ "Inside Eddy / High Turbulence",
+      eke < eddy_threshold ~ "Background Ocean"
+    )
+  ) %>%
+  group_by(water_state, eddy_type) %>%
+  summarize(
+    mean_chlor = mean(chlor_a, na.rm = TRUE),
+    median_chlor = median(chlor_a, na.rm = TRUE),
+    observation_count = n()
+  )
+
+eddy_composite
+
+
+
+master2 <- master2 %>%
+  mutate(
+    eddy_type = case_when(
+      eke >= eddy_threshold & sla > 0.05  ~ "Anticyclonic (Downwelling)",
+      eke >= eddy_threshold & sla < -0.05 ~ "Cyclonic (Upwelling)",
+      eke >= eddy_threshold               ~ "Unclassified Eddy",
+      TRUE                                ~ "Background Ocean"
+    )
+  )
+
+table(test_set$eddy_type)
+
+
+eddy_map_full <- master2 %>%
+  filter(eddy_type %in% c("Cyclonic (Upwelling)", "Anticyclonic (Downwelling)")) %>%
+  filter(oni_lag8 >= (expected_oni - 0.3) & oni_lag8 <= (expected_oni + 0.3)) %>%
+  group_by(latitude, longitude, pixel_id) %>%
+  summarize(
+    cyclonic_days = sum(eddy_type == "Cyclonic (Upwelling)"),
+    anticyclonic_days = sum(eddy_type == "Anticyclonic (Downwelling)"),
+    # Positive = Mostly Cyclonic. Negative = Mostly Anticyclonic.
+    net_eddy_score = cyclonic_days - anticyclonic_days,
+    mean_eke = mean(eke, na.rm = TRUE),
+    max_eke = max(eke, na.rm = TRUE),
+    total_eddy_days = n(),
+    .groups = "drop"
+  )
+```
+
+```{r}
+clean_plot_data <- master2 %>%
+  filter(eddy_type != "Unclassified Eddy")
+
+
+ggplot(clean_plot_data, aes(x = eddy_type, y = chlor_a, fill = eddy_type)) +
+  geom_violin(trim = FALSE, alpha = 0.7) +
+  geom_boxplot(width = 0.1, fill = "white", color = "black", outlier.shape = NA) +
+  scale_y_log10(labels = scales::comma) +
+  scale_fill_manual(values = c("Anticyclonic (Downwelling)" = "red", 
+                               "Background Ocean" = "grey", 
+                               "Cyclonic (Upwelling)" = "blue")) +
+  labs(
+    title = "Distribution of Chlorophyll-a by Eddy State",
+    x = "Oceanic State",
+    y = "Chlorophyll-a (mg/m³) [Log10 Scale]",
+    fill = "Oceanic State"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```

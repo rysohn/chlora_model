@@ -1,0 +1,405 @@
+---
+title: "data_collection"
+output: html_document
+date: "2026-04-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(terra)
+library(tidyverse)
+library(lubridate)
+library(rerddap)
+library(plotdap)
+library(broom)
+library(fuzzyjoin)
+library(tidync)
+library(arrow)
+library(sf)
+library(car)
+library(lme4)
+library(MuMIn)
+library(ggeffects)
+```
+
+
+# Chlorophyll Data
+```{r}
+chlor_list <- list()
+years <- 2004:2021
+for (y in years) {
+  print(y)
+  start_date <- paste0(y, "-01-01")
+  end_date <- paste0(y, "-12-31")
+  test1 <- griddap(
+    'erdMH1chla1day',
+    time = c(start_date, end_date),
+    latitude = c(18, 24),
+    longitude = c(-110, -104),
+    fields = 'chlorophyll'
+  )
+  test1 <- test1$data
+  test1 <- test1 %>% rename(chlor_a = chlorophyll) %>%
+    mutate(date=as.Date(time))
+  chlor_list[[as.character(y)]] <- test1
+  
+  Sys.sleep(5)
+}
+
+chlor_master <- bind_rows(chlor_list)
+chlor_master <- chlor_master %>% 
+  mutate(date = as.Date(time)) %>%
+  select(-time)
+
+
+# 2004 - 2021
+chlor_master <- read_parquet('chlor_master.parquet')
+chlor_master
+daily_chlor <- chlor_master
+write_parquet(daily_chlor, 'daily_chlor.parquet')
+
+unique(chlor_master$latitude)
+
+```
+
+
+# SST Data
+```{r}
+options(timeout = 600) 
+
+months_to_pull <- seq(as.Date("2004-01-01"), as.Date("2021-12-01"), by = "month")
+
+master_sst_list <- list()
+dir.create("temp_sst_downloads", showWarnings = FALSE)
+
+for (i in seq_along(months_to_pull)) {
+  
+  start_dt <- months_to_pull[i]
+  end_dt   <- ceiling_date(start_dt, "month") - days(1)
+  
+  start_str <- paste0(start_dt, "T12:00:00Z")
+  end_str   <- paste0(end_dt, "T12:00:00Z")
+  
+  message(sprintf("--------\nProcessing: %s to %s", start_dt, end_dt))
+  
+  # 4. Build the Direct URL for the specific month
+  url_raw <- paste0(
+    "https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.nc?",
+    "sst[(", start_str, "):1:(", end_str, ")][(0):1:(0)][(18.0):1:(24.0)][(250.0):1:(256.0)]"
+  )
+  
+  # FIX: Mathematically encode the brackets/colons so the NOAA server accepts it
+  url_safe <- URLencode(url_raw)
+  
+  dest_file <- paste0("temp_sst_downloads/oisst_", start_dt, ".nc")
+  
+  # 5. Download with a Retry Net
+  success <- FALSE
+  attempt <- 1
+  
+  while (!success && attempt <= 3) {
+    tryCatch({
+      # FIX: Added method = "libcurl" which is vastly superior at handling secure .gov sites
+      download.file(url_safe, destfile = dest_file, mode = "wb", method = "libcurl", quiet = TRUE)
+      success <- TRUE
+    }, error = function(e) {
+      message(sprintf("   -> Network hiccup on attempt %d. Retrying in 10 seconds...", attempt))
+      # FIX: Print the actual system error so we know EXACTLY why it failed
+      message(paste("      R System Error:", e$message)) 
+      Sys.sleep(10)
+      attempt <- attempt + 1
+    })
+  }
+  
+  if (!success) stop(paste("CRITICAL: Failed completely on month:", start_dt))
+  
+  # 6. Extract, keep as daily, and Save to List
+  temp_data <- tidync(dest_file) %>%
+    hyper_tibble() %>% 
+    mutate(
+      date = as.Date(as.POSIXct(time, origin = "1970-01-01", tz = "UTC")),
+      longitude = as.numeric(longitude),
+      longitude = ifelse(longitude > 180, longitude - 360, longitude)
+    ) %>%
+    filter(!is.na(sst)) %>%
+    # Group directly by date instead of week_start
+    group_by(date, latitude, longitude) %>%
+    summarize(
+      sst = mean(sst, na.rm = TRUE), # Rename directly to sst
+      .groups = "drop"
+    )
+  
+  master_sst_list[[as.character(start_dt)]] <- temp_data
+  
+  # 7. Clean up the massive NetCDF file immediately
+  unlink(dest_file)
+  rm(temp_data)
+  gc()
+  
+  Sys.sleep(2)
+}
+
+# 8. Stitch the list together into a single daily dataframe
+daily_sst_master <- bind_rows(master_sst_list)
+write_parquet(daily_sst_master, "daily_sst_master.parquet")
+```
+
+
+# SLA Data
+```{r}
+sla_master <- tidync('sla.nc') %>%
+  hyper_tibble() %>%
+  filter(!is.na(sla)) %>% 
+  mutate(
+    date = as.Date(time)
+  ) %>%
+  group_by(date, latitude, longitude) %>%
+  summarize(
+    sla = mean(sla, na.rm = TRUE), 
+    ugosa = mean(ugosa, na.rm = TRUE),
+    vgosa = mean(vgosa, na.rm = TRUE),
+    .groups = "drop"
+  )
+sla_master 
+write_parquet(daily_sla_master, "daily_sla_master.parquet")
+```
+
+
+
+# Lat/Long Matching
+```{r}
+chl_grid <- daily_chlor_master %>% 
+  distinct(longitude, latitude) %>% 
+  rename(chl_lon = longitude, chl_lat = latitude) %>%
+  collect()
+sst_grid <- daily_sst_master %>% 
+  distinct(longitude, latitude) %>% 
+  rename(sst_lon = longitude, sst_lat = latitude) %>%
+  collect()
+sla_grid <- daily_sla_master %>% 
+  distinct(longitude, latitude) %>% 
+  rename(sla_lon = longitude, sla_lat = latitude) %>%
+  collect()
+
+sf_chl <- st_as_sf(chl_grid, coords = c("chl_lon", "chl_lat"), crs = 4326, remove = FALSE)
+sf_sst <- st_as_sf(sst_grid, coords = c("sst_lon", "sst_lat"), crs = 4326, remove = FALSE)
+sf_sla <- st_as_sf(sla_grid, coords = c("sla_lon", "sla_lat"), crs = 4326, remove = FALSE)
+
+nearest_sst_index <- st_nearest_feature(sf_chl, sf_sst)
+nearest_sla_index <- st_nearest_feature(sf_chl, sf_sla)
+
+spatial_crosswalk <- chl_grid %>%
+  mutate(
+    matched_sst_lon = sst_grid$sst_lon[nearest_sst_index],
+    matched_sst_lat = sst_grid$sst_lat[nearest_sst_index],
+    matched_sla_lon = sla_grid$sla_lon[nearest_sla_index],
+    matched_sla_lat = sla_grid$sla_lat[nearest_sla_index]
+  )
+
+spatial_crosswalk
+
+
+
+chl_dates <- daily_chlor_master %>% 
+  distinct(date) %>% 
+  rename(chl_date = date) %>%
+  collect()
+sst_dates <- daily_sst_master %>% 
+  distinct(date) %>% 
+  rename(sst_date = date) %>%
+  collect()
+
+temporal_crosswalk <- chl_dates %>%
+  left_join(sst_dates, join_by(closest(chl_date > sst_date)))
+temporal_crosswalk
+```
+
+
+```{r}
+daily_master_dataset <- daily_chlor_master %>%
+  left_join(temporal_crosswalk, by = c("date" = "chl_date")) %>%
+  left_join(spatial_crosswalk, by = c("longitude" = "chl_lon", "latitude" = "chl_lat")) %>%
+  left_join(daily_sst_master, by = c(
+    "sst_date" = "date", 
+    "matched_sst_lon" = "longitude", 
+    "matched_sst_lat" = "latitude"
+  )) %>%
+  left_join(daily_sla_master, by = c(
+    "sst_date" = "date", 
+    "matched_sla_lon" = "longitude", 
+    "matched_sla_lat" = "latitude"
+  )) %>%
+  select(-sst_date, -matched_sst_lon, -matched_sst_lat, -matched_sla_lon, -matched_sla_lat) %>%
+  collect()
+
+daily_master_dataset <- daily_master_dataset %>%
+  mutate(
+    year = year(date),
+    month = month(date)
+  ) %>%
+  left_join(oni, by = c('year', 'month')) %>%
+  select(-year, -month)
+
+daily_master_dataset <- daily_master_dataset %>%
+  group_by(longitude, latitude) %>%
+  arrange(date) %>%
+  mutate(
+    sst_lag1 = lag(sst, n=1),
+    sst_lag2 = lag(sst, n=2),
+    sla_lag1 = lag(sla, n=1),
+    sla_lag2 = lag(sla, n=2),
+    oni_lag28 = lag(oni, n=28),
+    oni_lag56 = lag(oni, n=56)
+  ) %>% ungroup()
+
+daily_master_dataset
+write_parquet(daily_master_dataset, 'daily_master_dataset.parquet')
+
+master2 <- master_dataset %>%
+  filter(!is.na(oni_lag8))
+
+master2$sst_scaled <- scale(master2$sst)
+master2$sla_scaled <- scale(master2$sla)
+master2$oni_lag8_scaled <- scale(master2$oni_lag8)
+master2 <- master2 %>%
+  mutate(pixel_id = as.factor(paste(latitude, longitude, sep = "_")))
+
+
+write_parquet(master2, 'master2.parquet')
+```
+
+
+# ONI
+```{r}
+oni <- read.csv('oni.csv')
+oni <- oni %>%
+  mutate(
+    date = as.Date(Date),
+    year = year(date),
+    month = month(date)
+  ) %>% select(year, month, oni)
+write.csv(oni, 'oni.csv')
+```
+
+
+# Salinity
+```{r}
+master_dates <- sort(unique(master2$date))
+break_points <- c(master_dates, max(master_dates) + 8)
+salinity_master <- tidync('raw_salinity.nc') %>%
+  hyper_tibble() %>%
+  filter(!is.na(so)) %>% 
+  mutate(
+    latitude = as.numeric(latitude),
+    longitude = as.numeric(longitude),
+    raw_date = as.Date(time),
+    date_factor = cut(raw_date, 
+                      breaks = break_points, 
+                      labels = as.character(master_dates), 
+                      right = FALSE),
+    date = as.Date(date_factor)
+  ) %>%
+  group_by(date, latitude, longitude) %>%
+  summarize(
+    so = mean(so, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+grid_master <- master2 %>% distinct(longitude, latitude) %>% drop_na()
+grid_sal    <- salinity_master %>% distinct(longitude, latitude) %>% drop_na()
+sf_master <- st_as_sf(grid_master, coords = c("longitude", "latitude"), crs = 4326)
+sf_sal    <- st_as_sf(grid_sal, coords = c("longitude", "latitude"), crs = 4326)
+nearest_indices <- st_nearest_feature(sf_master, sf_sal)
+crosswalk <- grid_master %>%
+  mutate(
+    sal_lon = grid_sal$longitude[nearest_indices],
+    sal_lat = grid_sal$latitude[nearest_indices]
+  )
+
+master2 <- master2 %>%
+  left_join(crosswalk, by = c("longitude", "latitude")) %>%
+  left_join(salinity_master, 
+            by = c("date" = "date", 
+                   "sal_lon" = "longitude", 
+                   "sal_lat" = "latitude")) %>%
+  select(-sal_lon, -sal_lat)
+
+
+master2 <- master2 %>%
+  mutate(
+    eke_scaled = as.numeric(scale(eke))
+  )
+```
+
+
+# SST Spatial Cliff
+```{r}
+sst_wide <- master2 %>%
+  select(longitude, latitude, date, sst) %>%
+  
+  mutate(
+    longitude = as.numeric(as.character(longitude)),
+    latitude = as.numeric(as.character(latitude))
+  ) %>%
+  filter(!is.na(longitude) & !is.na(latitude)) %>%
+  
+  group_by(longitude, latitude, date) %>%
+  summarize(sst = mean(sst, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = date, values_from = sst)
+
+
+sst_points <- vect(sst_wide, geom = c("longitude", "latitude"), crs = "EPSG:4326")
+
+perfect_grid <- rast(ext(sst_points), res = 1/24, crs = "EPSG:4326")
+
+sst_raster <- rasterize(sst_points, perfect_grid, field = names(sst_points))
+
+num_layers <- nlyr(sst_raster)
+
+tpi_list <- lapply(1:num_layers, function(i) {
+  terrain(sst_raster[[i]], v = "TPI")
+})
+sst_tpi_raster <- rast(tpi_list)
+names(sst_tpi_raster) <- names(sst_raster)
+
+
+sst_tpi_df <- as.data.frame(sst_tpi_raster, xy = TRUE) %>%
+  pivot_longer(
+    cols = -c(x, y), 
+    names_to = "raw_date", 
+    values_to = "sst_tpi"
+  ) %>%
+  rename(longitude = x, latitude = y) %>%
+  mutate(
+    date = as.Date(gsub("\\.", "-", gsub("^X", "", raw_date))),
+    
+    sst_tpi_scaled = as.numeric(scale(sst_tpi))
+  ) %>%
+  select(-raw_date) %>%
+  filter(!is.na(sst_tpi))
+
+grid_master <- master2 %>% distinct(longitude, latitude) %>% drop_na()
+grid_grad   <- sst_tpi_df %>% distinct(longitude, latitude) %>% drop_na()
+
+sf_master <- st_as_sf(grid_master, coords = c("longitude", "latitude"), crs = 4326)
+sf_grad   <- st_as_sf(grid_grad, coords = c("longitude", "latitude"), crs = 4326)
+
+nearest_indices <- st_nearest_feature(sf_master, sf_grad)
+
+crosswalk <- grid_master %>%
+  mutate(
+    grad_lon = grid_grad$longitude[nearest_indices],
+    grad_lat = grid_grad$latitude[nearest_indices]
+  )
+
+
+master2 <- master2 %>%
+  select(-any_of(c("sst_gradient", "sst_gradient_scaled", "join_lon", "join_lat", "grad_lon", "grad_lat"))) %>%
+  left_join(crosswalk, by = c("longitude", "latitude")) %>%
+  left_join(sst_tpi_df, 
+            by = c("date" = "date", 
+                   "grad_lon" = "longitude", 
+                   "grad_lat" = "latitude")) %>%
+  select(-grad_lon, -grad_lat)
+```

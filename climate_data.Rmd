@@ -1,0 +1,696 @@
+---
+title: "climate_data"
+output: html_document
+date: "2026-02-07"
+---
+
+```{r setup, include=FALSE, warning=F}
+library(terra)
+library(tidyverse)
+library(lubridate)
+library(rerddap)
+library(plotdap)
+library(broom)
+library(fuzzyjoin)
+library(tidync)
+library(arrow)
+```
+
+
+```{r}
+path_temp <- ("C:/Users/ryanc/Downloads/research_climate/temp.grib")
+path_wave_height <- ("C:/Users/ryanc/Downloads/research_climate/wave_height.grib")
+path_precip <- ("C:/Users/ryanc/Downloads/research_climate/precipitation.grib")
+path_dewpoint <- ("C:/Users/ryanc/Downloads/research_climate/dewpoint_temp.grib")
+path_ss_temp <- ("C:/Users/ryanc/Downloads/research_climate/ss_temp.grib")
+
+r_temp <- rast(path_temp)
+time_steps <- as.character(time(r_temp))
+df_master <- as.data.frame(r_temp, xy=TRUE, na.rm=FALSE)
+names(df_master) <- c('Longitude', 'Latitude', paste0('Temp_', time_steps))
+
+r_wave_height <- rast(path_wave_height)
+r_precip <- rast(path_precip)
+r_dewpoint <- rast(path_dewpoint)
+r_ss_temp <- rast(path_ss_temp)
+
+r_wave_height <- resample(r_wave_height, r_temp, method='near')
+r_precip <- resample(r_precip, r_temp, method='near')
+r_dewpoint <- resample(r_dewpoint, r_temp, method='near')
+r_ss_temp <- resample(r_ss_temp, r_temp, method='near')
+
+
+df_wave_height <- as.data.frame(r_wave_height, xy=FALSE, na.rm=FALSE)
+df_precip <- as.data.frame(r_precip, xy=FALSE, na.rm=FALSE)
+df_dewpoint <- as.data.frame(r_dewpoint, xy=FALSE, na.rm=FALSE)
+df_ss_temp <- as.data.frame(r_ss_temp, xy=FALSE, na.rm=FALSE)
+names(df_wave_height) <- paste0('Wave_', time_steps)
+names(df_precip) <- paste0('Precip_', time_steps)
+names(df_dewpoint) <- paste0('Dewpoint_', time_steps)
+names(df_ss_temp) <- paste0('SST_', time_steps)
+
+
+df_wide <- cbind(df_master, df_ss_temp, df_precip, df_dewpoint, df_wave_height)
+
+df_final <- df_wide %>%
+  pivot_longer(
+    cols = -c(Longitude, Latitude),
+    names_to = c('Variable', 'Date'),
+    names_sep = '_',
+    values_to = 'Value'
+  ) %>%
+  pivot_wider(
+    names_from = Variable,
+    values_from = Value
+  )
+
+df_final <- df_final %>%
+  mutate(
+    Longitude = ifelse(Longitude>180, Longitude-360, Longitude),
+    Date = ifelse(nchar(Date) <= 10, paste0(Date, ' 00:00:00'), Date),
+    #Date = with_tz(Date, tzone='America/Mexico_City'), 
+    Year = year(Date),
+    Month_Day = format(as.Date(Date), '%m-%d'),
+    Time = format(as.POSIXct(Date, format='%Y-%m-%d %H:%M:%S'), '%H:%M'),
+    Precip = round(Precip*1000, 2),
+    Temp = Temp - 273.15,
+    SST = SST - 273.15,
+    Dewpoint = Dewpoint - 273.15
+  )
+
+df_final
+
+write.csv(df_final, 'Research_Climate_Data.csv', row.names=FALSE)
+
+
+quantile(df_final$Dewpoint, .95, na.rm=TRUE)
+quantile(df_final$Dewpoint, .05, na.rm=TRUE)
+quantile(df_final$Dewpoint, .5, na.rm=TRUE)
+
+```
+
+
+
+
+```{r}
+lat_range <- c(18, 24)
+lon_range <- c(-110, -104)
+
+chl_info <- info(datasetid = "nesdisVHNSQchlaMonthly", url = "https://coastwatch.pfeg.noaa.gov/erddap/")
+
+chl_data <- griddap(
+  chl_info,
+  latitude = lat_range,
+  longitude = lon_range,
+  time = c("2014-01-01", "2025-12-01"), # Your 10 Year Range
+  fields = "chlor_a"
+)
+
+df_chl <- chl_data$data
+
+df_chlorophyll <- df_chl %>%
+  filter(!is.na(chlor_a)) %>%      # Remove land/clouds)
+  mutate(
+    Date = as.Date(time),
+    Latitude = as.numeric(latitude),
+    Longitude = as.numeric(longitude), 
+    Month_Day = format(as.Date(Date), '%m-%d')
+  ) %>%
+  select(Date, Latitude, Longitude, chlor_a, Month_Day)
+
+
+df_chlorophyll
+
+
+write.csv(df_chlorophyll, "chlorophyll_monthly.csv", row.names = FALSE)
+
+
+quantile(df_chlorophyll$chlor_a, .95, na.rm=TRUE)
+quantile(df_chlorophyll$chlor_a, .05, na.rm=TRUE)
+quantile(df_chlorophyll$chlor_a, .5, na.rm=TRUE)
+```
+
+```{r}
+lat_range <- c(18, 24)
+lon_range <- c(-110, -104)
+
+airtemp_info <- info(datasetid = "nesdisVHNSQchlaMonthly", url = "https://coastwatch.pfeg.noaa.gov/erddap/")
+
+chl_data <- griddap(
+  chl_info,
+  latitude = lat_range,
+  longitude = lon_range,
+  time = c("2014-01-01", "2025-12-01"), # Your 10 Year Range
+  fields = "chlor_a"
+)
+
+df_chl <- chl_data$data
+
+df_chlorophyll <- df_chl %>%
+  filter(!is.na(chlor_a)) %>%      # Remove land/clouds)
+  mutate(
+    Date = as.Date(time),
+    Latitude = as.numeric(latitude),
+    Longitude = as.numeric(longitude), 
+    Month_Day = format(as.Date(Date), '%m-%d')
+  ) %>%
+  select(Date, Latitude, Longitude, chlor_a, Month_Day)
+
+
+df_chlorophyll
+
+
+write.csv(df_chlorophyll, "chlorophyll_monthly.csv", row.names = FALSE)
+
+```
+
+
+
+```{r}
+
+cw_url <- "https://coastwatch.noaa.gov/erddap/"
+dataset_id <- 'noaacwNPPVIIRSSQchlaWeekly' 
+
+
+out <- griddap(dataset_id,
+               url = cw_url,                    
+               time = c('2025-04-01', '2025-06-30'),
+               latitude = c(18.0, 24.0),
+               longitude = c(-110.0, -104.0),
+               fields = 'chlor_a'
+)
+
+cdf25 <- as.data.frame(out$data) %>% drop_na(chlor_a)
+
+cdf25
+
+
+elnino <- rbind(cdf15, cdf16, cdf19, cdf24) %>%
+  mutate(ENSO = 'El Nino')
+lanina <- rbind(cdf12, cdf18, cdf21, cdf22, cdf23) %>%
+  mutate(ENSO = 'La Nina')
+neutral <- rbind(cdf13, cdf14, cdf17, cdf20, cdf25) %>%
+  mutate(ENSO = 'Neutral')
+
+df_master <- rbind(elnino, lanina, neutral)
+df_master
+df_master$ENSO <- as.factor(df_master$ENSO)
+
+
+mod1 <- aov(chlor_a ~ ENSO, data=df_master)
+summary(mod1)
+TukeyHSD(mod1)
+
+
+kruskal.test(chlor_a ~ ENSO, data = df_master)
+pairwise.wilcox.test(df_master$chlor_a, df_master$ENSO, p.adjust.method = "bonferroni")
+
+
+saveRDS(df_master, 'chlorophyll_ENSO_diffs.rds')
+
+write.csv(df_master, "chlorophyll_ENSO_diffs.csv", row.names = FALSE)
+
+chlo_ENSE_diffs <- read.csv('chlorophyll_ENSO_diffs.csv')
+chlo_ENSO_diffs <- chlo_ENSE_diffs %>% 
+  mutate(
+    'date' = as.Date(time)
+  ) %>%
+  select(-c(altitude, time))
+
+chlo_ENSO_diffs <- chlo_ENSO_diffs %>% mutate(
+  year = year(date)
+)
+
+djf_enso <- data.frame(
+  year = c(2015:2025),
+  oni = c(0.7, 2.6, -0.2, -0.8, 0.9, 0.6, -0.9, -0.8, -0.5, 1.5, -0.5)
+)
+djf_enso
+
+enso_ratings <- inner_join(chlo_ENSO_diffs, djf_enso, by='year')
+enso_ratings 
+
+
+spatial_corr <- enso_ratings %>%
+  group_by(latitude, longitude) %>%
+  group_modify(~ tidy(lm(chlor_a ~ djf_oni, data=.x))) %>%
+  filter(term == 'djf_oni') %>%
+  ungroup()
+
+spatial_corr %>% filter(p.value < 0.05) %>%
+  arrange(estimate)
+
+write.csv(spatial_corr, 'djf_oni.csv', row.names=FALSE)
+```
+
+
+```{r}
+ssh_info <- ed_search(query='sea surface height')
+
+dataset_id <- 'nesdisSSH8day'
+ssh_data <- griddap(
+  dataset_id, 
+  time = c('2013-05-01', '2013-05-31'),
+  latitude = c(18.0, 24.0),
+  longitude = c(-110.0, -104.0),
+  fields = c('sla', 'ugos', 'vgos')
+)
+
+ssh13 <- as.data.frame(ssh_data$data)
+ssh13
+
+ssh_master <- rbind(ssh17, ssh18, ssh19, ssh20, ssh21, ssh22, ssh23, ssh24) %>%
+  drop_na(sla)
+
+ssh_master <- ssh_master %>%
+  mutate(time = as_datetime(time),
+    time = format(time, "%Y-%m-%d %H:%M:%S"))
+
+ssh_master
+
+
+saveRDS(ssh_master, 'ssh_data.rds')
+
+write.csv(ssh_master, "ssh_data.csv", row.names = FALSE)
+
+
+
+```
+
+
+```{r}
+daily_chlorophyll_data <- read.csv('daily_chlorophyll_data.csv')
+daily_chlorophyll_data
+
+
+ssh_master <- read.csv('ssh_data.csv')
+ssh_master
+
+combo <- read.csv('chlorophyll_ssh_corr_data.csv')
+combo
+
+res <- 0.25
+offset <- 0.125
+chlor_aligned <- daily_chlorophyll_data %>% mutate(
+  lat_grid = round((latitude-offset)/res) * res + offset,
+  lon_grid = round((longitude-offset)/res) * res + offset
+) %>%
+  group_by(date, latitude = lat_grid, longitude = lon_grid) %>%
+  summarize(chlor_a = mean(chlor_a, na.rm=TRUE), .groups='drop')
+  
+chlor_aligned
+
+combined_data <- inner_join(chlor_aligned, ssh_master, by=c('date', 'longitude', 'latitude'))
+combined_data
+
+unique(combined_data$date)
+
+global_test <- cor.test(
+  combined_data$chlor_a,
+  combined_data$sla,
+  method = 'spearman',
+  exact = FALSE
+)
+
+global_test
+
+
+spatial_corr <- combined_data %>%
+  group_by(latitude, longitude) %>%
+  summarize(
+    corr = cor(chlor_a, sla, method='spearman', use='complete.obs'),
+    n_obs = n(),
+    .groups = 'drop'
+  ) %>%
+  filter(n_obs > 20)
+
+spatial_corr
+spatial_corr %>% arrange(corr)
+
+write.csv(spatial_corr, 'spatial_corr_chlora_shh.csv', row.names=FALSE)
+
+
+
+temporal_corr <- combined_data %>%
+  group_by(date) %>%
+  summarize(
+    mean_chlor = mean(chlor_a, na.rm=TRUE),
+    mean_sla = mean(sla, na.rm=TRUE),
+    .groups='drop'
+  )
+cor.test(temporal_corr$mean_chlor, temporal_corr$mean_sla, method='spearman')
+```
+
+```{r}
+library(rpart)
+library(rpart.plot)
+
+tree_model <- rpart(
+  chlor_a ~ latitude + longitude + sla + month(date),
+  data = combo,
+  method = 'anova',
+  control = rpart.control(cp=0.01)
+)
+
+rpart.plot(tree_model, type=3, extra=101, fallen.leaves=TRUE)
+```
+
+
+## 1) Test correlation btwn chlor-a & ssh
+```{r}
+master_merged <- read.csv('master_merged.csv')
+
+global_test <- cor.test(
+  master_merged$chlor_a,
+  master_merged$sla,
+  method = 'spearman',
+  exact = FALSE
+)
+
+global_test
+
+
+spatial_corr <- master_merged %>%
+  group_by(latitude, longitude) %>%
+  summarize(
+    corr = cor(chlor_a, sla, method='spearman', use='complete.obs'),
+    n_obs = n(),
+    .groups = 'drop'
+  ) %>%
+  filter(n_obs > 20)
+
+spatial_corr %>% arrange(corr)
+```
+
+## 2) Test correlation btwn chlor-a & ENSO
+```{r}
+chlor_enso <- read.csv('chlorophyll_ENSO_diffs.csv') 
+chlor_enso <- chlor_enso %>% mutate(
+  year = year(time)
+)
+
+
+pairwise.wilcox.test(chlor_enso$chlor_a, chlor_enso$ENSO, p.adjust.method = "bonferroni")
+
+djf_enso <- data.frame(
+  year = c(2015:2025),
+  oni = c(0.7, 2.6, -0.2, -0.8, 0.9, 0.6, -0.9, -0.8, -0.5, 1.9, -0.4)
+)
+
+enso_ratings <- inner_join(chlor_enso, djf_enso, by='year')
+enso_ratings$date <- as.Date(enso_ratings$time)
+enso_ratings <- enso_ratings %>% select(-c('altitude', 'time', 'year'))
+
+enso_spatial_corr <- enso_ratings %>%
+  group_by(latitude, longitude) %>%
+  group_modify(~ tidy(lm(chlor_a ~ oni, data=.x))) %>%
+  filter(term=='oni') %>%
+  ungroup()
+
+enso_spatial_corr %>% filter(p.value < 0.05) %>%
+  arrange(estimate)
+```
+
+## 3) Graphed difference in ENSO
+```{r}
+enso_ratings$ENSO <- factor(enso_ratings$ENSO, levels=c('El Nino', 'Neutral', 'La Nina'))
+
+ggplot(enso_ratings, aes(x=ENSO, y=chlor_a, fill=ENSO)) + 
+  geom_violin(alpha=.7, trim=FALSE, scale='width') + 
+  geom_boxplot(width=.1, outlier.shape=NA, fill='white', color='black') + 
+  coord_cartesian(ylim = c(0, .75)) +
+  scale_fill_manual(values = c("El Nino" = "#ff9999", 
+                               "Neutral" = "#cccccc", 
+                               "La Nina" = "#99ccff")) +
+  theme_minimal()
+```
+
+## 4) Combined Correlation
+```{r}
+chlor_ssh$date <- as.Date(chlor_ssh$date)
+
+chlor_ssh <- chlor_ssh %>%
+  mutate(
+    date = as.Date(date),
+    latitude = round(latitude, 3),
+    longitude = round(longitude, 3)
+  )
+
+res <- 0.25
+offset <- 0.125
+mapped_enso <- enso_ratings %>%
+  mutate(
+    latitude = round((latitude - offset) / res) * res + offset,
+    longitude = round((longitude - offset) / res) * res + offset
+)
+
+combined_df <- left_join(
+  binned_full_chlora_data,
+  chlor_ssh,
+  by = c('date', 'latitude', 'longitude')
+)
+combined_df <- combined_df %>% select(-c('chlor_a.y')) %>% 
+  rename('chlor_a' = 'chlor_a.x') %>%
+  drop_na(sla)
+combined_df
+
+target_dates <- master_merged %>%
+  filter(
+    oni <= -0.5,
+    oni >= -0.9,
+    sla < 0
+  )
+
+best_sampling_spots <- target_dates %>%
+  group_by(latitude, longitude) %>%
+  summarize(
+    expected_chlor = mean(chlor_a, na.rm = TRUE),
+    max_chlor = max(chlor_a, na.rm = TRUE),
+    historical_observations = n(),
+    .groups = "drop"
+  ) %>%
+  filter(historical_observations > 10) %>%
+  arrange(desc(expected_chlor))
+  
+best_sampling_spots
+
+write.csv(best_sampling_spots, 'best_sampling_spots.csv', row.names=FALSE)
+```
+
+
+
+```{r}
+chlor_list <- list()
+years <- 2004:2021
+  for (y in years) {
+  print(y)
+  start_date <- paste0(y, "-01-01")
+  end_date <- paste0(y, "-12-31")
+  test1 <- griddap(
+    'erdMH1chla8day',
+    time = c(start_date, end_date),
+    latitude = c(18, 24),
+    longitude = c(-110, -104),
+    fields = 'chlorophyll'
+  )
+  test1 <- test1$data
+  test1 <- test1 %>% rename(chlor_a = chlorophyll) %>%
+    mutate(date=as.Date(time))
+  chlor_list[[as.character(y)]] <- test1
+  
+  Sys.sleep(5)
+  }
+
+
+
+chlor_master <- bind_rows(chlor_list)
+chlor_master <- chlor_master %>% 
+  mutate(date = as.Date(time)) %>%
+  select(-time) %>%
+  filter(!is.na(chlor_a))
+
+write_parquet(chlor_master, "chlor_master.parquet")
+
+write.csv(chlor_master, 'chlor_master.csv', row.names=F)
+
+test2 <- griddap('noaacwNPPVIIRSSQchlaDaily',
+               url = "https://coastwatch.noaa.gov/erddap/",                    
+               time = c('2014-05-01', '2014-05-10'),
+               latitude = c(18.0, 24.0),
+               longitude = c(-110.0, -104.0),
+               fields = 'chlor_a'
+)
+test2 <- test2$data
+test2 <- test2 %>% mutate(date=as.Date(time))
+
+
+test1 
+test2
+
+modis_binned <- test1 %>%
+  mutate(
+    lat_bin = round(latitude, 1),
+    lon_bin = round(longitude, 1)
+  ) %>%
+  group_by(lat_bin, lon_bin, date) %>%
+  summarize(
+    chlor_modis = mean(chlor_a, na.rm = TRUE), 
+    .groups = "drop"
+  )
+
+viirs_binned <- test2 %>%
+  mutate(
+    lat_bin = round(latitude, 1),
+    lon_bin = round(longitude, 1)
+  ) %>%
+  group_by(lat_bin, lon_bin, date) %>%
+  summarize(
+    chlor_viirs = mean(chlor_a, na.rm = TRUE), 
+    .groups = "drop"
+  )
+
+strict_calibration_data <- inner_join(
+  modis_binned, 
+  viirs_binned, 
+  by = c("lat_bin", "lon_bin", "date")
+) %>%
+  # Drop any days/squares where clouds blocked one of the satellites
+  drop_na(chlor_modis, chlor_viirs)
+strict_calibration_data
+
+daily_calibration_factor <- median(
+  strict_calibration_data$chlor_viirs / strict_calibration_data$chlor_modis
+)
+
+print(paste("The exact Daily Multiplier is:", round(daily_calibration_factor, 4)))
+
+
+elnino <- rbind(cdf03, cdf05, cdf07, cdf10) %>%
+  mutate(ENSO = 'El Nino')
+lanina <- rbind(cdf06, cdf08, cdf09, cdf11, cdf12) %>%
+  mutate(ENSO = 'La Nina')
+neutral <- rbind(cdf04, cdf13, cdf14) %>%
+  mutate(ENSO = 'Neutral')
+
+df_master <- rbind(elnino, lanina, neutral)
+df_master
+df_master$ENSO <- as.factor(df_master$ENSO)
+df_master <- df_master %>% mutate(
+  year = year(time)
+)
+
+
+djf_enso <- data.frame(
+  year = c(2003:2014),
+  oni = c(0.9, 0.4, 0.6, -0.9, 0.7, -1.6, -0.8, 1.5, -1.3, -0.7, -0.3, -0.3)
+)
+djf_enso
+
+enso_ratings2 <- inner_join(df_master, djf_enso, by='year')
+enso_ratings2 <- enso_ratings2 %>%
+  mutate(chlor_a = chlor_a * 1.0176)
+enso_ratings
+
+chlora_03_25_data <- rbind(enso_ratings, enso_ratings2)
+chlora_03_25_data <- chlora_03_25_data %>% filter(month(date) == 05)
+write.csv(chlora_03_25_data, 'chlora_03_25_data.csv', row.names = FALSE)
+
+chlora_03_25_data <- read.csv('chlora_03_25_data.csv')
+
+binned_full_chlora_data <- chlora_03_25_data %>% mutate(
+  date = as.Date(date),
+  lat_bin = round(latitude, 2),
+  lon_bin = round(longitude, 2)
+) %>%
+group_by(date, lat_bin, lon_bin, ENSO, oni) %>%
+summarize(
+  chlor_a = mean(chlor_a, na.rm = TRUE), 
+  .groups = "drop"
+)
+binned_full_chlora_data <- binned_full_chlora_data %>%
+  rename(latitude=lat_bin, longitude=lon_bin)
+write.csv(binned_full_chlora_data, 'binned_full_chlora_data.csv', row.names=FALSE)
+
+binned_full_chlora_data <- read.csv('binned_full_chlora_data.csv')
+
+```
+
+
+```{r}
+ssh_year <- griddap(
+  'erdTAssh1day',
+  time = c('2013-05-01', '2013-05-31'), # Pulls right up to when your modern dataset starts
+  latitude = c(18, 24),
+  longitude = c(250, 256),
+  fields = 'ssh' 
+)
+
+ssh_year <- ssh_year$data
+ssh13 <- ssh_year %>% mutate(
+  date=as.Date(time),
+  longitude = longitude - 360
+) %>% select(-c(altitude, time)) %>%
+  drop_na(ssh)
+
+ssh13
+
+ssh_early <- rbind(ssh03, ssh04, ssh05, ssh06, ssh07, ssh08, ssh09, ssh10, ssh11, ssh12)
+ssh_early
+write.csv(ssh_early, 'ssh_early.csv', row.names=FALSE)
+chlor_ssh
+
+write.csv(ssh_master, 'ssh_master.csv', row.names = FALSE)
+
+
+ssh_early <- read.csv('ssh_early.csv')
+
+offset <- mean(ssh_early$ssh) - mean(chlor_ssh$sla)
+
+ssh_early_adjusted <- ssh_early %>%
+  mutate(ssh = ssh - offset)
+
+
+raw_sla <- tidync('full_sla_data.nc') %>% hyper_tibble()
+raw_sla <- raw_sla %>% mutate(
+  time = as.Date(time),
+  longitude = as.numeric(longitude),
+  latitude = as.numeric(latitude)
+) %>%
+  rename(date=time)
+
+
+```
+
+```{r}
+enso_snapped <- chlora_03_25_data %>% mutate(
+  latitude = floor(latitude / 0.125) * 0.125 + 0.0625,
+  longitude = floor(longitude / 0.125) * 0.125 + 0.0625
+)
+ssh_snapped <- raw_sla %>% mutate(
+  lat_bin = round(latitude / 0.125) * 0.125,
+  lon_bin = round(longitude / 0.125) * 0.125
+)
+
+ssh_snapped %>%
+  group_by(date, lat_bin, lon_bin) %>%
+  filter(n() > 1)
+
+master_merged <- enso_snapped %>% left_join(
+  raw_sla, by = c('date', 'latitude', 'longitude')
+)
+master_merged
+
+write.csv(master_merged, 'master_merged.csv', row.names=FALSE)
+range(master_merged$sla)
+```
+
+```{r}
+master_merged <- read.csv('master_merged.csv')
+master_merged
+
+
+master_model_data <- master_merged %>%
+  mutate(log_chlor = log(chlor_a + 0.01))
+model_log_combined <- lm(log_chlor ~ sla + oni + latitude + longitude, data = master_model_data)
+summary(model_log_combined)
+```
