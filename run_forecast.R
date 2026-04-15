@@ -1,4 +1,3 @@
-# Load libraries quietly
 suppressPackageStartupMessages({
   library(dplyr)
   library(rerddap)
@@ -22,12 +21,48 @@ start_date <- as.character(Sys.Date() - 7)
 time_window <- c(start_date, end_date)
 cat("Pulling satellite data from:", start_date, "to", end_date, "\n")
 
-live_sst_raw <- griddap(
-  datasetx = "jplMURSST41",
-  time = time_window,
-  latitude = c(18, 24),
-  longitude = c(-110, -104),
-  fields = "analysed_sst"
+coastwatch_url <- "https://coastwatch.noaa.gov/erddap/"
+
+fetch_with_retry <- function(dataset_id, fields_name, lat_bounds, lon_bounds, time_bounds, max_retries = 3) {
+  for(i in 1:max_retries) {
+    cat(sprintf("Attempt %d of %d for %s...\n", i, max_retries, dataset_id))
+    
+    result <- tryCatch({
+      data_info <- rerddap::info(dataset_id, url = coastwatch_url)
+      
+      rerddap::griddap(
+        data_info,
+        time = time_bounds,
+        latitude = lat_bounds,
+        longitude = lon_bounds,
+        fields = fields_name,
+        url = coastwatch_url
+      )
+    }, error = function(e) {
+      cat("Error caught:", e$message, "\n")
+      return(NULL)
+    })
+    
+    if (!is.null(result)) {
+      cat("Success!\n")
+      return(result)
+    }
+    
+    if (i < max_retries) {
+      cat("Waiting 10 seconds before retrying...\n")
+      Sys.sleep(10)
+    }
+  }
+  stop(sprintf("Failed to fetch %s after %d attempts. Server may be down.", dataset_id, max_retries))
+}
+
+cat("Fetching SST...\n")
+live_sst_raw <- fetch_with_retry(
+  dataset_id = "jplMURSST41", 
+  fields_name = "analysed_sst", 
+  lat_bounds = c(18, 24), 
+  lon_bounds = c(-110, -104), 
+  time_bounds = time_window
 )
 
 live_sst_weekly <- live_sst_raw$data %>%
@@ -41,13 +76,14 @@ live_sst_weekly <- live_sst_raw$data %>%
   mutate(pixel_id = as.factor(paste(lat_grid, lon_grid, sep = "_"))) %>%
   select(latitude = lat_grid, longitude = lon_grid, pixel_id, sst_weekly_avg)
 
-live_sla_raw <- griddap(
-  datasetx = "noaacwBLENDEDsshDaily",
-  url = "https://coastwatch.noaa.gov/erddap/",
-  time = time_window,
-  latitude = c(18, 24),
-  longitude = c(-110, -104),
-  fields = "sla"
+
+cat("Fetching SLA...\n")
+live_sla_raw <- fetch_with_retry(
+  dataset_id = "noaacwBLENDEDsshDaily", 
+  fields_name = "sla", 
+  lat_bounds = c(18, 24), 
+  lon_bounds = c(-110, -104), 
+  time_bounds = time_window
 )
 
 live_sla_weekly <- live_sla_raw$data %>%
@@ -86,3 +122,4 @@ if (!dir.exists("output")) { dir.create("output") }
 
 ggsave("output/latest_forecast_map.png", plot = forecast_plot, width = 10, height = 7, dpi = 300)
 write.csv(live_forecast, "output/latest_forecast.csv", row.names = FALSE)
+cat("Pipeline complete!\n")

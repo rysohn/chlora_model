@@ -8,3 +8,11 @@
 *.grib
 *.RData*
 output/
+daily_chlorophyll_data.rds
+chlorophyll_ENSO_diffs.rds
+interaction_prediction.rds
+mod_spatial_scaled.rds
+mod_spatial.rds
+gam_model.rds
+sst_prediction.rds
+ssh_data.rds

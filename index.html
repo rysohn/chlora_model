@@ -60,46 +60,46 @@
   
     <label>Month (1-12):</label>
     <div class="input-row">
-        <input type="number" id="month-min" min="1" max="12" placeholder="Min (e.g. 3)">
-        <input type="number" id="month-max" min="1" max="12" placeholder="Max (e.g. 5)">
+        <input type="number" id="month-min" min="1" max="12" placeholder="Min (1)">
+        <input type="number" id="month-max" min="1" max="12" placeholder="Max (12)">
     </div>  
 
     <label>Sea Surface Temp (°C):</label>
     <div class="input-row">
-        <input type="number" id="sst-min" step="0.5" placeholder="Min (e.g. 15)">
-        <input type="number" id="sst-max" step="0.5" placeholder="Max (e.g. 20)">
+        <input type="number" id="sst-min" step="0.5" placeholder="Min (17)">
+        <input type="number" id="sst-max" step="0.5" placeholder="Max (32)">
     </div>
 
     <label>Sea Level Anomaly (m):</label>
     <div class="input-row">
-        <input type="number" id="sla-min" step="0.05" placeholder="Min">
-        <input type="number" id="sla-max" step="0.05" placeholder="Max">
+        <input type="number" id="sla-min" step="0.05" placeholder="Min (-0.3)">
+        <input type="number" id="sla-max" step="0.05" placeholder="Max (0.5)">
     </div>
 
-    <label>Oceanic Niño Index (ONI):</label>
+    <label>Oceanic Niño Index (ONI) [2 Month Lag]:</label>
     <div class="input-row">
-        <input type="number" id="oni-min" step="0.1" placeholder="Min">
-        <input type="number" id="oni-max" step="0.1" placeholder="Max">
+        <input type="number" id="oni-min" step="0.1" placeholder="Min (-2)">
+        <input type="number" id="oni-max" step="0.1" placeholder="Max (3)">
     </div>
 
-    <label>Latitude:</label>
+    <label>Latitude (°N):</label>
     <div class="input-row">
-        <input type="number" id="lat-min" step="0.5" placeholder="Min (South)">
-        <input type="number" id="lat-max" step="0.5" placeholder="Max (North)">
+        <input type="number" id="lat-min" step="0.5" placeholder="Min (18)">
+        <input type="number" id="lat-max" step="0.5" placeholder="Max (24)">
     </div>
 
-    <label>Longitude:</label>
+    <label>Longitude (°W):</label>
     <div class="input-row">
-        <input type="number" id="lon-min" step="0.5" placeholder="Min (West)">
-        <input type="number" id="lon-max" step="0.5" placeholder="Max (East)">
+        <input type="number" id="lon-min" step="0.5" placeholder="Min (-110)">
+        <input type="number" id="lon-max" step="0.5" placeholder="Max (-104)">
     </div>
 
     <div id="results">
-        <p>Average Chlorophyll-a: <span id="chl-result" class="highlight">Loading...</span> mg/m³</p>
         <p>Matching Data Points: <span id="count-result" class="highlight">--</span></p>
+        <p>Average Chlorophyll-a: <span id="chl-result" class="highlight">Loading...</span> mg/m³</p>
     </div>
     <div id="table-container" style="margin-top: 2rem; border-top: 2px solid #eee; padding-top: 1rem;">
-        <h3 style="margin-bottom: 1rem;">Top 10 Highest Chlorophyll Points</h3>
+        <h3 style="margin-bottom: 1rem;">Top 20 Highest Chlorophyll Points</h3>
         <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
             <thead>
                 <tr style="background-color: #f8f9fa; text-align: left;">
