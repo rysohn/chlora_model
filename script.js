@@ -43,6 +43,14 @@ async function updateDashboard() {
     const { data, error } = await _supabase.rpc('get_ocean_points', params);
 
     if (error) {
+        console.error("Supabase Error Object:", error);
+        
+        chlDisplay.innerText = "DB Error";
+        countDisplay.innerHTML = `<span style="color: red; font-size: 0.9em;">${error.message} <br> ${error.details || ''}</span>`;
+        return;
+    }
+
+    if (error) {
         console.error("Supabase Error:", error);
         chlDisplay.innerText = "Error";
         return;
