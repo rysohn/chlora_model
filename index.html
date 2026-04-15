@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chlorophyll-a Historical Explorer</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+        }
+        .explorer-panel {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            max-width: 500px;
+            width: 100%;
+        }
+        label {
+            font-weight: bold;
+            display: block;
+            margin-top: 1rem;
+        }
+        input[type="number"] {
+            width: 100%;
+            padding: 0.5rem;
+            margin-top: 0.5rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        #results {
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 2px solid #eee;
+        }
+        .highlight {
+            font-size: 1.2rem;
+            color: #0056b3;
+            font-weight: bold;
+        }.input-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 0.5rem;
+        }
+        .input-row input {
+            width: 50%;
+            margin-top: 0;
+        }
+    </style>
+</head>
+<body>
+
+<div class="explorer-panel">
+    <h2>Historical Conditions Filters</h2>
+  
+    <label for="month-input">Month:</label>
+    <select id="month-input" style="width: 100%; padding: 0.5rem; margin-top: 0.5rem; margin-bottom: 1rem;">
+        <option value="all">All Year</option>
+        <option value="1">January</option>
+        <option value="12">December</option>
+    </select>
+
+    <label>Sea Surface Temp (°C):</label>
+    <div class="input-row">
+        <input type="number" id="sst-min" step="0.5" placeholder="Min (e.g. 15)">
+        <input type="number" id="sst-max" step="0.5" placeholder="Max (e.g. 20)">
+    </div>
+
+    <label>Sea Level Anomaly (m):</label>
+    <div class="input-row">
+        <input type="number" id="sla-min" step="0.05" placeholder="Min">
+        <input type="number" id="sla-max" step="0.05" placeholder="Max">
+    </div>
+
+    <label>Oceanic Niño Index (ONI):</label>
+    <div class="input-row">
+        <input type="number" id="oni-min" step="0.1" placeholder="Min">
+        <input type="number" id="oni-max" step="0.1" placeholder="Max">
+    </div>
+
+    <label>Latitude:</label>
+    <div class="input-row">
+        <input type="number" id="lat-min" step="0.5" placeholder="Min (South)">
+        <input type="number" id="lat-max" step="0.5" placeholder="Max (North)">
+    </div>
+
+    <label>Longitude:</label>
+    <div class="input-row">
+        <input type="number" id="lon-min" step="0.5" placeholder="Min (West)">
+        <input type="number" id="lon-max" step="0.5" placeholder="Max (East)">
+    </div>
+
+    <div id="results">
+        <p>Average Chlorophyll-a: <span id="chl-result" class="highlight">Loading...</span> mg/m³</p>
+        <p>Matching Data Points: <span id="count-result" class="highlight">--</span></p>
+    </div>
+</div>
+
+<script src="script.js"></script>
+
+</body>
+</html>
