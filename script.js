@@ -1,87 +1,66 @@
-let oceanData = [];
+// 1. Initialize Supabase
+// You find these in your Supabase Dashboard under Settings > API
+const supabaseUrl = 'https://yagqrtjjaecnvhozegka.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlhZ3FydGpqYWVjbnZob3plZ2thIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyMTMxODMsImV4cCI6MjA5MTc4OTE4M30.GR2xT-qkuJIdc6XHP93BHwKZGVXZ91VmdHWnzkKQIZU'; 
+const _supabase = supabase.createClient(supabaseUrl, supabaseKey);
 
-// 1. Fetch the data
-fetch('output/historical_explorer.json')
-  .then(response => {
-      if (!response.ok) throw new Error("Data not found.");
-      return response.json();
-  })
-  .then(data => {
-    oceanData = data;
-    updateResults(); // Run once on load
-  })
-  .catch(error => {
-      document.getElementById('chl-result').innerText = "Error loading data";
-      console.error(error);
-  });
-
-// 2. Add event listeners to ALL the new inputs
+// 2. Setup Listeners
 const inputs = [
-    'month-input', 
-    'sst-min', 'sst-max', 
-    'sla-min', 'sla-max', 
-    'oni-min', 'oni-max', 
-    'lat-min', 'lat-max', 
-    'lon-min', 'lon-max'
+    'month-min', 'month-max', 'sst-min', 'sst-max', 'sla-min', 'sla-max', 
+    'oni-min', 'oni-max', 'lat-min', 'lat-max', 'lon-min', 'lon-max'
 ];
 
 inputs.forEach(id => {
-    document.getElementById(id).addEventListener('input', updateResults);
+    // We use 'change' instead of 'input' so we don't spam the database 
+    // with a request for every single keystroke.
+    document.getElementById(id).addEventListener('change', updateDashboard);
 });
 
-// 3. The Range Filtering Function
-function updateResults() {
-  const selectedMonth = document.getElementById('month-input').value;
-  
-  // Parse all Mins and Maxes
-  const sstMin = parseFloat(document.getElementById('sst-min').value);
-  const sstMax = parseFloat(document.getElementById('sst-max').value);
-  const slaMin = parseFloat(document.getElementById('sla-min').value);
-  const slaMax = parseFloat(document.getElementById('sla-max').value);
-  const oniMin = parseFloat(document.getElementById('oni-min').value);
-  const oniMax = parseFloat(document.getElementById('oni-max').value);
-  const latMin = parseFloat(document.getElementById('lat-min').value);
-  const latMax = parseFloat(document.getElementById('lat-max').value);
-  const lonMin = parseFloat(document.getElementById('lon-min').value);
-  const lonMax = parseFloat(document.getElementById('lon-max').value);
+// 3. The Query Function
+async function updateDashboard() {
+    const chlDisplay = document.getElementById('chl-result');
+    const countDisplay = document.getElementById('count-result');
 
-  // Filter the massive array
-  const filteredData = oceanData.filter(d => {
-    let match = true;
+    chlDisplay.innerText = "Querying...";
 
-    // Month (Exact match)
-    if (selectedMonth !== 'all') {
-        match = match && (d.month === parseInt(selectedMonth));
+    // Helper to handle empty boxes as 'null' for the SQL function
+    const getVal = (id) => {
+        const val = document.getElementById(id).value;
+        return (val === "" || val === "all") ? null : parseFloat(val);
+    };
+
+    const params = {
+        p_month_min: getVal('month-min'),
+        p_month_max: getVal('month-max'),
+        p_sst_min: getVal('sst-min'), p_sst_max: getVal('sst-max'),
+        p_sla_min: getVal('sla-min'), p_sla_max: getVal('sla-max'),
+        p_oni_min: getVal('oni-min'), p_oni_max: getVal('oni-max'),
+        p_lat_min: getVal('lat-min'), p_lat_max: getVal('lat-max'),
+        p_lon_min: getVal('lon-min'), p_lon_max: getVal('lon-max')
+    };
+
+    // CALL THE DATABASE
+    const { data, error } = await _supabase.rpc('get_ocean_points', params);
+
+    if (error) {
+        console.error("Supabase Error:", error);
+        chlDisplay.innerText = "Error";
+        return;
     }
 
-    // Explicit Range Checks (Only filters if the box actually has a number in it)
-    if (!isNaN(sstMin)) match = match && (d.sst >= sstMin);
-    if (!isNaN(sstMax)) match = match && (d.sst <= sstMax);
-
-    if (!isNaN(slaMin)) match = match && (d.sla >= slaMin);
-    if (!isNaN(slaMax)) match = match && (d.sla <= slaMax);
-
-    if (!isNaN(oniMin)) match = match && (d.oni >= oniMin);
-    if (!isNaN(oniMax)) match = match && (d.oni <= oniMax);
-
-    if (!isNaN(latMin)) match = match && (d.latitude >= latMin);
-    if (!isNaN(latMax)) match = match && (d.latitude <= latMax);
-
-    if (!isNaN(lonMin)) match = match && (d.longitude >= lonMin);
-    if (!isNaN(lonMax)) match = match && (d.longitude <= lonMax);
-
-    return match;
-  });
-
-  // Calculate Results
-  if (filteredData.length > 0) {
-    const totalChl = filteredData.reduce((sum, d) => sum + d.chlor_a, 0);
-    const avgChl = (totalChl / filteredData.length).toFixed(2);
-    
-    document.getElementById('chl-result').innerText = avgChl;
-    document.getElementById('count-result').innerText = filteredData.length;
-  } else {
-    document.getElementById('chl-result').innerText = "0.00";
-    document.getElementById('count-result').innerText = "0 (No matches)";
-  }
+    // UPDATE THE UI
+    const result = data[0]; // Our SQL function returns an array with 1 row
+    if (result && result.total_points > 0) {
+        chlDisplay.innerText = result.avg_chl;
+        countDisplay.innerText = result.total_points.toLocaleString();
+        
+        // FUTURE STEP: result.map_points contains the 1,000 dots for your map!
+        console.log("Sample of points for mapping:", result.map_points);
+    } else {
+        chlDisplay.innerText = "0.00";
+        countDisplay.innerText = "0 (No matches)";
+    }
 }
+
+// Run once on load to show global averages
+updateDashboard();

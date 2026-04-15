@@ -78,7 +78,7 @@ cat("Generating forecast map...\n")
 forecast_plot <- ggplot(live_forecast, aes(x = longitude, y = latitude, fill = predicted_chlor_actual)) +
   geom_tile() +
   scale_fill_viridis_c(option = "viridis", name = "Chl-a", trans = "log10") +
-  borders("world", colour = "black", fill = NA) +
+  annotation_borders("world", colour = "black", fill = NA) +
   coord_quickmap(xlim = c(-110, -104), ylim = c(18, 24)) +
   theme_minimal()
 
@@ -86,11 +86,3 @@ if (!dir.exists("output")) { dir.create("output") }
 
 ggsave("output/latest_forecast_map.png", plot = forecast_plot, width = 10, height = 7, dpi = 300)
 write.csv(live_forecast, "output/latest_forecast.csv", row.names = FALSE)
-
-web_data <- historical_data %>%
-  sample_n(10000) %>%
-  mutate(month = month(date)) %>% 
-  select(longitude, latitude, sst, sla, oni, month, chlor_a) %>%
-  mutate(across(c(sst, sla, oni, chlor_a, longitude, latitude), round, 2))
-
-write_json(web_data, "output/historical_explorer.json")

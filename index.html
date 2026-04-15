@@ -58,12 +58,11 @@
 <div class="explorer-panel">
     <h2>Historical Conditions Filters</h2>
   
-    <label for="month-input">Month:</label>
-    <select id="month-input" style="width: 100%; padding: 0.5rem; margin-top: 0.5rem; margin-bottom: 1rem;">
-        <option value="all">All Year</option>
-        <option value="1">January</option>
-        <option value="12">December</option>
-    </select>
+    <label>Month (1-12):</label>
+    <div class="input-row">
+        <input type="number" id="month-min" min="1" max="12" placeholder="Min (e.g. 3)">
+        <input type="number" id="month-max" min="1" max="12" placeholder="Max (e.g. 5)">
+    </div>  
 
     <label>Sea Surface Temp (°C):</label>
     <div class="input-row">
@@ -101,6 +100,7 @@
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="script.js"></script>
 
 </body>

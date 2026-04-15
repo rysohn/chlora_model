@@ -652,3 +652,60 @@ ggplot(clean_plot_data, aes(x = eddy_type, y = chlor_a, fill = eddy_type)) +
   theme(legend.position = "none")
 
 ```
+
+
+```{r}
+gam_model$model <- NULL
+gam_model$data <- NULL
+gam_model$residuals <- NULL
+gam_model$fitted.values <- NULL
+gam_model$linear.predictors <- NULL
+
+saveRDS(gam_model, "gam_model_shrunk.rds", compress = "xz")
+```
+
+
+# Supabase Setup
+```{r}
+library(DBI)
+library(RPostgres)
+
+sampled_master <- master2 %>%
+  sample_n(2500000) %>%
+  select(month, longitude, latitude, sst, sla, oni, chlor_a) %>%
+  mutate(
+    sst = round(sst, 2),
+    sla = round(sla, 3),
+    oni = round(oni, 2),
+    chlor_a = round(chlor_a, 3)
+  )
+
+con <- dbConnect(
+  RPostgres::Postgres(), 
+  dbname   = "postgres",
+  host     = "aws-1-us-east-1.pooler.supabase.com",
+  port     = 5432,
+  user     = "postgres.yagqrtjjaecnvhozegka",
+  password = "APIKey"
+)
+
+dbExecute(con, "DROP TABLE IF EXISTS ocean_data;")
+batch_size <- 500000 
+num_batches <- ceiling(nrow(sampled_master) / batch_size)
+
+for(i in 1:num_batches) {
+  start_idx <- ((i - 1) * batch_size) + 1
+  end_idx <- min(i * batch_size, nrow(sampled_master))
+  chunk <- sampled_master[start_idx:end_idx, ]
+  
+  if(i == 1) {
+    dbWriteTable(con, "ocean_data", chunk, row.names = FALSE, overwrite = TRUE)
+  } else {
+    dbWriteTable(con, "ocean_data", chunk, row.names = FALSE, append = TRUE)
+  }
+  cat(sprintf("Uploaded batch %d of %d...\n", i, num_batches))
+}
+
+dbDisconnect(con)
+
+```

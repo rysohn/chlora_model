@@ -28,7 +28,7 @@ jobs:
 
       - name: Install R Packages
         run: |
-          install.packages(c("dplyr", "rerddap", "mgcv", "lubridate", "ggplot2", "viridis", "scales", "maps", "jsonlite"))
+          install.packages(c("dplyr", "rerddap", "mgcv", "lubridate", "ggplot2", "viridis", "scales", "maps"))
         shell: Rscript {0}
 
       - name: Run Forecast Script
