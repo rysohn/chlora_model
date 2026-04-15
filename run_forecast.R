@@ -4,6 +4,8 @@ suppressPackageStartupMessages({
   library(rerddap)
   library(mgcv)
   library(lubridate)
+  library(ggplot2)
+  library(viridis)
 })
 
 cat("Starting Ocean Forecast Pipeline...\n")
@@ -71,10 +73,15 @@ gam_model <- readRDS("models/gam_model_shrunk.rds")
 live_forecast$predicted_log_chlor <- predict(gam_model, newdata = live_forecast)
 live_forecast$predicted_chlor_actual <- exp(live_forecast$predicted_log_chlor)
 
+cat("Generating forecast map...\n")
+forecast_plot <- ggplot(live_forecast, aes(x = longitude, y = latitude, fill = predicted_chlor_actual)) +
+  geom_tile() +
+  scale_fill_viridis_c(option = "viridis", name = "Chl-a", trans = "log10") +
+  borders("world", colour = "black", fill = NA) +
+  coord_quickmap(xlim = c(-110, -104), ylim = c(18, 24)) +
+  theme_minimal()
 
 if (!dir.exists("output")) { dir.create("output") }
 
-filename <- paste0("output/forecast_", Sys.Date(), ".csv")
-write.csv(live_forecast, filename, row.names = FALSE)
-
-cat("Success! Forecast saved to", filename, "\n")
+ggsave("output/latest_forecast_map.png", plot = forecast_plot, width = 10, height = 7, dpi = 300)
+write.csv(live_forecast, "output/latest_forecast.csv", row.names = FALSE)
