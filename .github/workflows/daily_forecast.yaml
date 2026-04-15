@@ -25,11 +25,11 @@ jobs:
 
       - name: Install R Packages
         run: |
-          install.packages(c("dplyr", "rerddap", "mgcv", "lubridate", "ggplot2", "viridis", "scales"))
+          install.packages(c("dplyr", "rerddap", "mgcv", "lubridate", "ggplot2", "viridis", "scales", "maps"))
         shell: Rscript {0}
 
       - name: Run Forecast Script
-        run: Rscript scripts/run_forecast.R
+        run: Rscript run_forecast.R
 
       - name: Commit and Push Output
         run: |
