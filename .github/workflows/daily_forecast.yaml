@@ -34,7 +34,8 @@ jobs:
       - name: Commit and Push Output
         run: |
           git config --local user.email "actions@github.com"
-          git config --local user.name "GitHub Actions Bot"
-          git add output/*
-          git commit -m "Automated daily forecast update" || echo "No changes to commit"
+          git config --local user.name "GitHub Actions"
+          git add -f output/latest_forecast.csv  # Added -f here
+          git add -f output/latest_forecast_map.png # Added -f here
+          git commit -m "Daily Bloom Forecast Update: $(date +'%Y-%m-%d')" || echo "No changes to commit"
           git push
