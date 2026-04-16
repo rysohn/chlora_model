@@ -5,7 +5,6 @@ suppressPackageStartupMessages({
   library(lubridate)
   library(ggplot2)
   library(viridis)
-  library(jsonlite)
 })
 
 cat("Starting Ocean Forecast Pipeline...\n")
@@ -21,8 +20,8 @@ start_date <- as.character(Sys.Date() - 7)
 time_window <- c(start_date, end_date)
 cat("Pulling satellite data from:", start_date, "to", end_date, "\n")
 
-coastwatch_url <- "https://coastwatch.noaa.gov/erddap/"
 upwell_url <- "https://upwell.pfeg.noaa.gov/erddap/"
+coastwatch_url <- "https://coastwatch.noaa.gov/erddap/"
 
 fetch_with_retry <- function(dataset_id, fields_name, lat_bounds, lon_bounds, time_bounds, base_url, max_retries = 3) {
   for(i in 1:max_retries) {
@@ -67,6 +66,17 @@ live_sst_raw <- fetch_with_retry(
   base_url = upwell_url
 )
 
+live_sst_weekly <- live_sst_raw$data %>%
+  filter(!is.na(analysed_sst)) %>%
+  mutate(
+    lat_grid = round((latitude - 0.125) / 0.25) * 0.25 + 0.125,
+    lon_grid = round((longitude - 0.125) / 0.25) * 0.25 + 0.125
+  ) %>%
+  group_by(lat_grid, lon_grid) %>%
+  summarize(sst_weekly_avg = mean(analysed_sst, na.rm = TRUE), .groups = "drop") %>%
+  mutate(pixel_id = as.factor(paste(lat_grid, lon_grid, sep = "_"))) %>%
+  select(latitude = lat_grid, longitude = lon_grid, pixel_id, sst_weekly_avg)
+
 
 cat("Fetching SLA from CoastWatch...\n")
 live_sla_raw <- fetch_with_retry(
@@ -87,13 +97,11 @@ live_sla_weekly <- live_sla_raw$data %>%
 live_forecast <- live_sst_weekly %>%
   inner_join(live_sla_weekly, by = 'pixel_id') %>%
   mutate(
-    # Safely scale using your 15-year baseline anchors
     sst_scaled = as.numeric((sst_weekly_avg - SST_TRAIN_MEAN) / SST_TRAIN_SD),
     sla_scaled = as.numeric((sla_weekly_avg - SLA_TRAIN_MEAN) / SLA_TRAIN_SD),
     oni_lag8 = CURRENT_ONI,
     month = as.numeric(format(Sys.Date(), "%m"))
   ) %>%
-  # Drop NAs to prevent prediction errors
   filter(!is.na(sst_scaled) & !is.na(sla_scaled))
 
 cat("Loading GAM model and predicting...\n")
