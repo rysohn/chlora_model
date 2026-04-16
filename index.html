@@ -10,111 +10,138 @@
             background-color: #f4f7f6;
             color: #333;
             padding: 2rem;
+        }
+        .dashboard-layout {
             display: flex;
-            justify-content: center;
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            align-items: flex-start;
         }
         .explorer-panel {
             background: white;
             padding: 2rem;
             border-radius: 8px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            max-width: 500px;
-            width: 100%;
+            flex: 0 0 350px;
         }
-        label {
-            font-weight: bold;
-            display: block;
-            margin-top: 1rem;
+        .data-panel {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            flex: 1;
         }
-        input[type="number"] {
-            width: 100%;
-            padding: 0.5rem;
-            margin-top: 0.5rem;
-            border: 1px solid #ccc;
-            border-radius: 4px;
+        label { font-weight: bold; display: block; margin-top: 1rem; }
+        input[type="number"] { width: 100%; padding: 0.5rem; margin-top: 0.5rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        .input-row { display: flex; gap: 10px; margin-top: 0.5rem; }
+        .input-row input { width: 50%; margin-top: 0; }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
         }
-        #results {
-            margin-top: 2rem;
-            padding-top: 1rem;
-            border-top: 2px solid #eee;
+        .stat-card {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 6px;
+            border-left: 4px solid #0056b3;
+            text-align: center;
         }
-        .highlight {
-            font-size: 1.2rem;
-            color: #0056b3;
-            font-weight: bold;
-        }.input-row {
-            display: flex;
-            gap: 10px;
-            margin-top: 0.5rem;
-        }
-        .input-row input {
-            width: 50%;
-            margin-top: 0;
-        }
+        .stat-label { font-size: 0.85rem; color: #666; font-weight: bold; text-transform: uppercase; }
+        .stat-value { font-size: 1.5rem; color: #0056b3; font-weight: bold; margin-top: 0.5rem; }
     </style>
 </head>
 <body>
 
-<div class="explorer-panel">
-    <h2>Historical Conditions Filters</h2>
-  
-    <label>Month:</label>
-    <div class="input-row">
-        <input type="number" id="month-min" min="1" max="12" placeholder="Min (1)">
-        <input type="number" id="month-max" min="1" max="12" placeholder="Max (12)">
-    </div>  
+<div class="dashboard-layout">
+    <div class="explorer-panel">
+        <h2>Filters</h2>
+        <label>Month (1-12):</label>
+        <div class="input-row">
+            <input type="number" id="month-min" min="1" max="12" placeholder="Min">
+            <input type="number" id="month-max" min="1" max="12" placeholder="Max">
+        </div>
 
-    <label>Sea Surface Temp (°C):</label>
-    <div class="input-row">
-        <input type="number" id="sst-min" step="0.5" placeholder="Min (17)">
-        <input type="number" id="sst-max" step="0.5" placeholder="Max (32)">
+        <label>Sea Surface Temp (°C):</label>
+        <div class="input-row">
+            <input type="number" id="sst-min" step="0.5" placeholder="Min">
+            <input type="number" id="sst-max" step="0.5" placeholder="Max">
+        </div>
+
+        <label>Sea Level Anomaly (m):</label>
+        <div class="input-row">
+            <input type="number" id="sla-min" step="0.05" placeholder="Min">
+            <input type="number" id="sla-max" step="0.05" placeholder="Max">
+        </div>
+
+        <label>Oceanic Niño Index (ONI):</label>
+        <div class="input-row">
+            <input type="number" id="oni-min" step="0.1" placeholder="Min">
+            <input type="number" id="oni-max" step="0.1" placeholder="Max">
+        </div>
+
+        <label>Latitude:</label>
+        <div class="input-row">
+            <input type="number" id="lat-min" step="0.5" placeholder="Min">
+            <input type="number" id="lat-max" step="0.5" placeholder="Max">
+        </div>
+
+        <label>Longitude:</label>
+        <div class="input-row">
+            <input type="number" id="lon-min" step="0.5" placeholder="Min">
+            <input type="number" id="lon-max" step="0.5" placeholder="Max">
+        </div>
     </div>
 
-    <label>Sea Level Anomaly (m):</label>
-    <div class="input-row">
-        <input type="number" id="sla-min" step="0.05" placeholder="Min (-0.3)">
-        <input type="number" id="sla-max" step="0.05" placeholder="Max (0.5)">
-    </div>
+    <div class="data-panel">
+        <h2>Chl-a Distribution Metrics (mg/m³)</h2>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Average</div>
+                <div class="stat-value" id="chl-result">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Median</div>
+                <div class="stat-value" id="median-result">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Std Dev</div>
+                <div class="stat-value" id="sd-result">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Variance</div>
+                <div class="stat-value" id="var-result">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Points</div>
+                <div class="stat-value" id="count-result" style="color: #333;">--</div>
+            </div>
+        </div>
 
-    <label>Oceanic Niño Index (ONI) [2 Month Lag]:</label>
-    <div class="input-row">
-        <input type="number" id="oni-min" step="0.1" placeholder="Min (-2)">
-        <input type="number" id="oni-max" step="0.1" placeholder="Max (3)">
-    </div>
-
-    <label>Latitude (°N):</label>
-    <div class="input-row">
-        <input type="number" id="lat-min" step="0.5" placeholder="Min (18)">
-        <input type="number" id="lat-max" step="0.5" placeholder="Max (24)">
-    </div>
-
-    <label>Longitude (°W):</label>
-    <div class="input-row">
-        <input type="number" id="lon-min" step="0.5" placeholder="Min (-110)">
-        <input type="number" id="lon-max" step="0.5" placeholder="Max (-104)">
-    </div>
-
-    <div id="results">
-        <p>Matching Data Points: <span id="count-result" class="highlight">--</span></p>
-        <p>Average Chlorophyll-a: <span id="chl-result" class="highlight">Loading...</span> mg/m³</p>
-    </div>
-    <div id="table-container" style="margin-top: 2rem; border-top: 2px solid #eee; padding-top: 1rem;">
-        <h3 style="margin-bottom: 1rem;">Top 20 Highest Chlorophyll Points</h3>
-        <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
-            <thead>
-                <tr style="background-color: #f8f9fa; text-align: left;">
-                    <th style="padding: 8px; border-bottom: 2px solid #ccc;">Month</th>
-                    <th style="padding: 8px; border-bottom: 2px solid #ccc;">Lat</th>
-                    <th style="padding: 8px; border-bottom: 2px solid #ccc;">Lon</th>
-                    <th style="padding: 8px; border-bottom: 2px solid #ccc;">SST</th>
-                    <th style="padding: 8px; border-bottom: 2px solid #ccc;">SLA</th>
-                    <th style="padding: 8px; border-bottom: 2px solid #ccc;">ONI</th>
-                    <th style="padding: 8px; border-bottom: 2px solid #ccc;">Chl-a</th>
-                </tr>
-            </thead>
-            <tbody id="top-points-body">
-                </tbody>
-        </table>
+        <div id="table-container">
+            <h3>Top 20 Highest Chlorophyll Locations</h3>
+            <div style="max-height: 350px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                    <thead style="position: sticky; top: 0; z-index: 1; background-color: #f8f9fa;">
+                        <tr style="text-align: left;">
+                            <th style="padding: 8px; border-bottom: 2px solid #ccc;">Month</th>
+                            <th style="padding: 8px; border-bottom: 2px solid #ccc;">Lat</th>
+                            <th style="padding: 8px; border-bottom: 2px solid #ccc;">Lon</th>
+                            <th style="padding: 8px; border-bottom: 2px solid #ccc;">SST</th>
+                            <th style="padding: 8px; border-bottom: 2px solid #ccc;">SLA</th>
+                            <th style="padding: 8px; border-bottom: 2px solid #ccc;">ONI</th>
+                            <th style="padding: 8px; border-bottom: 2px solid #ccc;">Chl-a</th>
+                        </tr>
+                    </thead>
+                    <tbody id="top-points-body">
+                        </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
 

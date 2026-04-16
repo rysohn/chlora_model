@@ -59,22 +59,31 @@ async function updateDashboard() {
     // UPDATE THE UI
     const result = data[0]; 
     const tbody = document.getElementById('top-points-body');
+    const chlDisplay = document.getElementById('chl-result');
+    const countDisplay = document.getElementById('count-result');
     
-    // Clear out the old table rows every time a filter changes
+    // NEW Elements
+    const medianDisplay = document.getElementById('median-result');
+    const sdDisplay = document.getElementById('sd-result');
+    const varDisplay = document.getElementById('var-result');
+
     tbody.innerHTML = ''; 
 
     if (result && result.total_points > 0) {
         chlDisplay.innerText = result.avg_chl;
         countDisplay.innerText = result.total_points.toLocaleString();
         
-        // Loop through the top 10 points and create a table row for each
+        medianDisplay.innerText = result.median_chl !== null ? result.median_chl : "N/A";
+        sdDisplay.innerText = result.sd_chl !== null ? result.sd_chl : "N/A";
+        varDisplay.innerText = result.var_chl !== null ? result.var_chl : "N/A";
+
         if (result.top_points) {
             result.top_points.forEach(pt => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">${pt.month}</td>
-                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${Number(pt.latitude).toFixed(4)}</td>
-                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${Number(pt.longitude).toFixed(4)}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${Number(pt.latitude).toFixed(2)}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${Number(pt.longitude).toFixed(2)}</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">${Number(pt.sst).toFixed(2)}</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">${Number(pt.sla).toFixed(3)}</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">${Number(pt.oni).toFixed(2)}</td>
@@ -85,10 +94,11 @@ async function updateDashboard() {
         }
     } else {
         chlDisplay.innerText = "0.00";
-        countDisplay.innerText = "0 (No matches)";
-        
-        // Let the user know the table is empty
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 1rem;">No data matching these filters.</td></tr>';
+        countDisplay.innerText = "0";
+        medianDisplay.innerText = "--";
+        sdDisplay.innerText = "--";
+        varDisplay.innerText = "--";
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 1rem;">No data matching these filters.</td></tr>';
     }
 }
 
