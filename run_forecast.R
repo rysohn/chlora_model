@@ -22,13 +22,14 @@ time_window <- c(start_date, end_date)
 cat("Pulling satellite data from:", start_date, "to", end_date, "\n")
 
 coastwatch_url <- "https://coastwatch.noaa.gov/erddap/"
+upwell_url <- "https://upwell.pfeg.noaa.gov/erddap/"
 
-fetch_with_retry <- function(dataset_id, fields_name, lat_bounds, lon_bounds, time_bounds, max_retries = 3) {
+fetch_with_retry <- function(dataset_id, fields_name, lat_bounds, lon_bounds, time_bounds, base_url, max_retries = 3) {
   for(i in 1:max_retries) {
     cat(sprintf("Attempt %d of %d for %s...\n", i, max_retries, dataset_id))
     
     result <- tryCatch({
-      data_info <- rerddap::info(dataset_id, url = coastwatch_url)
+      data_info <- rerddap::info(dataset_id, url = base_url)
       
       rerddap::griddap(
         data_info,
@@ -36,7 +37,7 @@ fetch_with_retry <- function(dataset_id, fields_name, lat_bounds, lon_bounds, ti
         latitude = lat_bounds,
         longitude = lon_bounds,
         fields = fields_name,
-        url = coastwatch_url
+        url = base_url
       )
     }, error = function(e) {
       cat("Error caught:", e$message, "\n")
@@ -56,34 +57,25 @@ fetch_with_retry <- function(dataset_id, fields_name, lat_bounds, lon_bounds, ti
   stop(sprintf("Failed to fetch %s after %d attempts. Server may be down.", dataset_id, max_retries))
 }
 
-cat("Fetching SST...\n")
+cat("Fetching SST from Upwell...\n")
 live_sst_raw <- fetch_with_retry(
   dataset_id = "jplMURSST41", 
   fields_name = "analysed_sst", 
   lat_bounds = c(18, 24), 
   lon_bounds = c(-110, -104), 
-  time_bounds = time_window
+  time_bounds = time_window,
+  base_url = upwell_url
 )
 
-live_sst_weekly <- live_sst_raw$data %>%
-  filter(!is.na(analysed_sst)) %>%
-  mutate(
-    lat_grid = round((latitude - 0.125) / 0.25) * 0.25 + 0.125,
-    lon_grid = round((longitude - 0.125) / 0.25) * 0.25 + 0.125
-  ) %>%
-  group_by(lat_grid, lon_grid) %>%
-  summarize(sst_weekly_avg = mean(analysed_sst, na.rm = TRUE), .groups = "drop") %>%
-  mutate(pixel_id = as.factor(paste(lat_grid, lon_grid, sep = "_"))) %>%
-  select(latitude = lat_grid, longitude = lon_grid, pixel_id, sst_weekly_avg)
 
-
-cat("Fetching SLA...\n")
+cat("Fetching SLA from CoastWatch...\n")
 live_sla_raw <- fetch_with_retry(
   dataset_id = "noaacwBLENDEDsshDaily", 
   fields_name = "sla", 
   lat_bounds = c(18, 24), 
   lon_bounds = c(-110, -104), 
-  time_bounds = time_window
+  time_bounds = time_window,
+  base_url = coastwatch_url
 )
 
 live_sla_weekly <- live_sla_raw$data %>%
