@@ -34,7 +34,6 @@ master2 <- read_parquet('master2.parquet')
 #interaction_prediction <- readRDS('interaction_prediction.rds')
 #live_forecast <- read.csv('live_forecast.csv')
 #daily_master_dataset <- read_parquet('daily_master_dataset.parquet')
-gam_model <- readRDS('gam_model.rds')
 ```
 
 # Linear Models
@@ -215,73 +214,58 @@ exp(predict(mod_spatial, newdata = local, re.form=NA))
 # Live Predictions
 
 ```{r}
-sst_train_mean <- mean(master2$sst, na.rm = TRUE)
-sst_train_sd   <- sd(master2$sst, na.rm = TRUE)
-sla_train_mean <- mean(master2$sla, na.rm = TRUE)
-sla_train_sd   <- sd(master2$sla, na.rm = TRUE)
+forecast_date <- as.character(Sys.Date() - 1)
 
-
-end_date <- as.character(Sys.Date() - 1)
-start_date <- as.character(Sys.Date() - 7)
-time_window <- c(start_date, end_date)
 
 live_sst_raw <- griddap(
   datasetx = "jplMURSST41",
-  time = time_window,
+  time = c(forecast_date, forecast_date),
   latitude = c(18, 24),
   longitude = c(-110, -104),
   fields = "analysed_sst"
 )
 
-live_sst_weekly <- live_sst_raw$data %>%
+live_sst <- live_sst_raw$data %>%
   filter(!is.na(analysed_sst)) %>%
   mutate(
+    date = as.Date(time),
     lat_grid = round((latitude - 0.125) / 0.25) * 0.25 + 0.125,
     lon_grid = round((longitude - 0.125) / 0.25) * 0.25 + 0.125
   ) %>%
-  # Group ONLY by coordinates to average across the 7 days
-  group_by(lat_grid, lon_grid) %>%
-  summarize(sst_weekly_avg = mean(analysed_sst, na.rm = TRUE), .groups = "drop") %>%
+  group_by(date, lat_grid, lon_grid) %>%
+  summarize(sst = mean(analysed_sst, na.rm = TRUE), .groups = "drop") %>%
   mutate(
-    pixel_id = as.factor(paste(lat_grid, lon_grid, sep = "_"))
+    pixel_id = as.factor(paste(lat_grid, lon_grid, sep = "_")),
   ) %>%
-  select(latitude = lat_grid, longitude = lon_grid, pixel_id, sst_weekly_avg)
+  select(date, latitude = lat_grid, longitude = lon_grid, pixel_id, sst)
+
 
 live_sla_raw <- griddap(
   datasetx = "noaacwBLENDEDsshDaily",
   url = "https://coastwatch.noaa.gov/erddap/",
-  time = time_window,
+  time = c(forecast_date, forecast_date),
   latitude = c(18, 24),
   longitude = c(-110, -104),
   fields = "sla"
 )
 
-live_sla_weekly <- live_sla_raw$data %>%
+live_sla <- live_sla_raw$data %>%
   filter(!is.na(sla)) %>%
   mutate(
+    date = as.Date(time),
     pixel_id = as.factor(paste(round(latitude, 3), round(longitude, 3), sep = "_"))
   ) %>%
-  group_by(pixel_id) %>%
-  summarize(sla_weekly_avg = mean(sla, na.rm = TRUE), .groups = "drop")
+  select(date, latitude, longitude, pixel_id, sla)
 
-live_forecast <- live_sst_weekly %>%
-  inner_join(live_sla_weekly, by = 'pixel_id') %>%
-  mutate(
-    sst_scaled = as.numeric((sst_weekly_avg - sst_train_mean) / sst_train_sd),
-    sla_scaled = as.numeric((sla_weekly_avg - sla_train_mean) / sla_train_sd),
-    oni_lag8 = -0.2,
-    month = as.numeric(format(Sys.Date(), "%m"))
-  )
 
-live_forecast$predicted_log_chlor <- predict(gam_model, newdata = live_forecast)
-live_forecast$predicted_chlor_actual <- exp(live_forecast$predicted_log_chlor)
+live_forecast <- live_sst %>%
+  inner_join(live_sla, by='pixel_id') %>%
+  mutate(oni_lag8 = -0.4) %>%
+  select(date = date.x, latitude = latitude.x, longitude = longitude.x, pixel_id, sst, sla, oni_lag8)
 
-live_forecast %>%
-  arrange(desc(predicted_chlor_actual)) %>%
-  select(latitude, longitude, predicted_chlor_actual, sst_weekly_avg, sla_weekly_avg) %>%
-  head(10)
+live_forecast$predicted_log_chlor <- predict(mod_spatial, newdata = live_forecast, allow.new.levels = TRUE)
+live_forecast$chlorophyll_mg_m3 <- exp(live_forecast$predicted_log_chlor)
 ```
-
 
 ```{r}
 geo_memory <- ranef(mod_spatial)$pixel_id %>%
@@ -427,79 +411,57 @@ cat("R-Squared: ", true_r_squared, "\n")
 # GAM Model
 
 ```{r}
+master2_mini <- master2 %>% 
+  sample_frac(0.05) %>%
+  mutate(
+    month_num = as.numeric(lubridate::month(date)),
+    pixel_id = as.factor(pixel_id)
+  )
+
 gam_model <- bam(
-  formula = log(chlor_a) ~ 
-    s(sst_scaled, k=20)+ 
-    s(sla_scaled, k=20) + 
-    s(oni_lag8, k=5) + 
-    s(month, bs='cc', k=12) + 
-    ti(sst_scaled, sla_scaled, k=c(8, 8)) + 
-    s(longitude, latitude, k=300),
-  data = master2,
+  log(chlor_a) ~ 
+    s(sst_scaled, k = 10) + 
+    s(sla_scaled, k = 10) + 
+    s(oni_lag8, k = 10) +
+    s(sst_tpi_scaled, k = 10) + 
+    s(month_num, bs = "cc", k = 12) +
+    ti(sst_scaled, sla_scaled) + 
+    s(pixel_id, bs = "re"),
+  data = master2_mini,
   method = "fREML", 
-  discrete = TRUE,   
+  discrete = TRUE, 
   trace = TRUE
 )
 
 summary(gam_model)
-plot(gam_model, pages = 1, scheme = 2, shade.col = "lightblue")
 
 
-par(mfrow = c(2, 2)) 
-gam.check(gam_model)
-par(mfrow = c(1, 1))
-
-log_predictions <- predict(gam_model)
-real_predictions <- exp(log_predictions)
-actual_chlor <- master2$chlor_a
-real_rmse <- sqrt(mean((actual_chlor - real_predictions)^2, na.rm = TRUE))
-real_rmse
-
-master2_complete <- master2 %>%
-  drop_na(chlor_a, sst_scaled, sla_scaled, oni_lag8, sst_tpi_scaled, longitude, latitude)
-actual_chlor <- master2_complete$chlor_a
-
-performance_check <- data.frame(
-  Date = master2_complete$date,
-  Longitude = master2_complete$longitude,
-  Latitude = master2_complete$latitude,
-  Actual_Chlor = actual_chlor,
-  Predicted_Chlor = real_predictions
-) %>%
-  mutate(
-    Error = Actual_Chlor - Predicted_Chlor,
-    Percent_Miss = abs(Error) / Actual_Chlor * 100
+ggplot(eval_data, aes(x = actual_log, y = predicted_log)) +
+  geom_hex(bins = 100) +
+  scale_fill_viridis_c(trans = "log10", name = "Density") +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed", size = 1) +
+  geom_smooth(method = "gam", color = "blue", size = 1) +
+  theme_minimal() +
+  labs(
+    title = "Actual vs. Predicted Chlorophyll",
+    subtitle = "Red line = Perfect Prediction. Blue line = Model Trend.",
+    x = "Actual Chlorophyll (log mg/m³)",
+    y = "Predicted Chlorophyll (log mg/m³)"
   )
 
-performance_check %>% 
-  arrange(desc(abs(Error))) %>% 
-  head(20)
-```
 
+bloom_threshold <- quantile(eval_data$actual_log, 0.90, na.rm = TRUE)
 
+extreme_blooms <- eval_data %>%
+  filter(actual_log >= bloom_threshold)
 
+bloom_rmse <- sqrt(mean((extreme_blooms$actual_log - extreme_blooms$predicted_log)^2, na.rm = TRUE))
 
-```{r}
-master2_binary <- master2 %>%
-  mutate(is_bloom = ifelse(chlor_a > 15, 1, 0)) %>%
-  drop_na(is_bloom, sst_scaled, sla_scaled, oni_lag8, sst_tpi_scaled, longitude, latitude)
+bloom_bias <- mean(extreme_blooms$predicted_log - extreme_blooms$actual_log, na.rm = TRUE)
 
-gam_prob_model <- bam(
-  is_bloom ~ 
-    s(sst_scaled, k = 20) + 
-    s(sla_scaled, k = 20) + 
-    s(oni_lag8, k = 5) +
-    s(sst_tpi_scaled, k = 20) + 
-    s(month, bs = "cc", k = 12) +
-    ti(sst_scaled, sla_scaled) + 
-    s(longitude, latitude, k = 300),
-  
-  data = master2_binary,
-  family = binomial(link = "logit"),
-  method = "fREML", 
-  discrete = TRUE
-)
-summary(gam_prob_model)
+cat("Threshold (Log Scale): ", bloom_threshold, "\n")
+cat("Bloom RMSE:            ", bloom_rmse, "\n")
+cat("Bloom Bias:            ", bloom_bias, "\n")
 ```
 
 # Backtesting
@@ -650,62 +612,5 @@ ggplot(clean_plot_data, aes(x = eddy_type, y = chlor_a, fill = eddy_type)) +
   ) +
   theme_minimal() +
   theme(legend.position = "none")
-
-```
-
-
-```{r}
-gam_model$model <- NULL
-gam_model$data <- NULL
-gam_model$residuals <- NULL
-gam_model$fitted.values <- NULL
-gam_model$linear.predictors <- NULL
-
-saveRDS(gam_model, "gam_model_shrunk.rds", compress = "xz")
-```
-
-
-# Supabase Setup
-```{r}
-library(DBI)
-library(RPostgres)
-
-sampled_master <- master2 %>%
-  sample_n(2500000) %>%
-  select(month, longitude, latitude, sst, sla, oni, chlor_a) %>%
-  mutate(
-    sst = round(sst, 2),
-    sla = round(sla, 3),
-    oni = round(oni, 2),
-    chlor_a = round(chlor_a, 3)
-  )
-
-con <- dbConnect(
-  RPostgres::Postgres(), 
-  dbname   = "postgres",
-  host     = "aws-1-us-east-1.pooler.supabase.com",
-  port     = 5432,
-  user     = "postgres.yagqrtjjaecnvhozegka",
-  password = "APIKey"
-)
-
-dbExecute(con, "DROP TABLE IF EXISTS ocean_data;")
-batch_size <- 500000 
-num_batches <- ceiling(nrow(sampled_master) / batch_size)
-
-for(i in 1:num_batches) {
-  start_idx <- ((i - 1) * batch_size) + 1
-  end_idx <- min(i * batch_size, nrow(sampled_master))
-  chunk <- sampled_master[start_idx:end_idx, ]
-  
-  if(i == 1) {
-    dbWriteTable(con, "ocean_data", chunk, row.names = FALSE, overwrite = TRUE)
-  } else {
-    dbWriteTable(con, "ocean_data", chunk, row.names = FALSE, append = TRUE)
-  }
-  cat(sprintf("Uploaded batch %d of %d...\n", i, num_batches))
-}
-
-dbDisconnect(con)
 
 ```
