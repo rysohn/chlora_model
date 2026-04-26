@@ -2,6 +2,8 @@
 title: "chlorophyll_research"
 output: html_document
 date: "2026-03-27"
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE, warning=F}
@@ -24,6 +26,8 @@ library(ggcorrplot)
 library(Metrics)
 library(mgcv)
 library(ranger)
+library(RPostgres)
+library(DBI)
 #chlor_master <- read_parquet('chlor_master.parquet')
 #sst_master <- read_parquet('sst_master.parquet')
 #sla_master <- read_parquet('sla_master.parquet')
@@ -613,4 +617,25 @@ ggplot(clean_plot_data, aes(x = eddy_type, y = chlor_a, fill = eddy_type)) +
   theme_minimal() +
   theme(legend.position = "none")
 
+```
+
+# Supabase Upload
+```{r}
+set.seed(123)
+
+ocean_df <- master2 %>%
+  select(longitude, latitude, chlor_a, date, sst, sla, oni_lag8, month) %>%
+  slice_sample(n=2500000) %>%
+  rename(oni = oni_lag8)
+head(ocean_df)
+
+
+con <- dbConnect(RPostgres::Postgres(),
+                 dbname = "postgres",
+                 host = "aws-1-us-east-1.pooler.supabase.com", 
+                 port = 6543,
+                 user = "postgres.yagqrtjjaecnvhozegka",
+                 password = "SaidtheSky*028")
+dbWriteTable(con, name = "ocean_data", value = ocean_df, overwrite = TRUE, row.names = FALSE)
+dbDisconnect(con)
 ```

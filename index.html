@@ -34,12 +34,17 @@
             align-items: stretch;
         }
 
+        /* Left Panel: Filters + Chart */
         .explorer-panel {
             background: white; padding: 1rem; border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            flex: 0 0 260px;
+            flex: 0 0 280px;
             overflow-y: auto;
+            display: flex;
+            flex-direction: column;
         }
+        
+        /* Middle Panel: Data */
         .data-panel {
             background: white; padding: 1rem; border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -49,6 +54,8 @@
             min-height: 0;
             transition: opacity 0.3s ease; 
         }
+        
+        /* Right Panel: Maps */
         .visual-panel {
             background: white; padding: 1rem; border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -59,11 +66,12 @@
             min-height: 0;
             transition: opacity 0.3s ease; 
         }
+        
         .data-panel.is-loading, .visual-panel.is-loading { opacity: 0.4; pointer-events: none; }
         
-        label { font-weight: bold; display: block; margin-top: 0.5rem; font-size: 0.8rem;}
+        label { font-weight: bold; display: block; margin-top: 0.3rem; font-size: 0.8rem;}
         input[type="number"] { width: 100%; padding: 0.25rem; margin-top: 0.2rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 0.85rem; }
-        .input-row { display: flex; gap: 5px; margin-top: 0.2rem; }
+        .input-row { display: flex; gap: 5px; margin-top: 0.1rem; }
         .input-row input { width: 50%; margin-top: 0; }
         
         .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.5rem; margin-bottom: 1rem; }
@@ -82,9 +90,24 @@
             min-height: 0; 
         }
         
+        #top-points-body tr { cursor: pointer; transition: background-color 0.15s ease; }
+        #top-points-body tr:hover { background-color: #e9ecef !important; }
+        .selected-row { background-color: #d1ecf1 !important; border-left: 4px solid #0056b3; }
+
         .visual-panel > div { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-        #map { flex: 1; width: 100%; border-radius: 4px; border: 1px solid #ccc; z-index: 1; min-height: 0; }
-        .chart-container { flex: 1; width: 100%; position: relative; min-height: 0; }
+        #map, #daily-map { flex: 1; width: 100%; border-radius: 4px; border: 1px solid #ccc; z-index: 1; min-height: 0; }
+        
+        .chart-container { 
+            width: 100%; 
+            position: relative; 
+            flex: 1; 
+            min-height: 120px; 
+            margin-top: 1rem; 
+            border-top: 1px solid #eee; 
+            padding-top: 0.5rem; 
+            display: flex; 
+            flex-direction: column; 
+        }
 
         h2, h3 { margin: 0 0 0.4rem 0; font-size: 1.05rem; }
     </style>
@@ -94,20 +117,30 @@
 <h1 class="page-title">Chlorophyll-a Historical Explorer</h1>
 
 <div class="dashboard-layout">
+    
     <div class="explorer-panel">
-        <h2>Filters</h2>
-        <label>Month:</label>
-        <div class="input-row"><input type="number" id="month-min" min="1" max="12" placeholder="Min (1)"><input type="number" id="month-max" min="1" max="12" placeholder="Max (12)"></div>
-        <label>Sea Surface Temp (°C):</label>
-        <div class="input-row"><input type="number" id="sst-min" step="0.5" placeholder="Min (17)"><input type="number" id="sst-max" step="0.5" placeholder="Max (33)"></div>
-        <label>Sea Level Anomaly (m):</label>
-        <div class="input-row"><input type="number" id="sla-min" step="0.05" placeholder="Min (-0.3)"><input type="number" id="sla-max" step="0.05" placeholder="Max (0.5)"></div>
-        <label>Oceanic Niño Index (2 Mo Lag):</label>
-        <div class="input-row"><input type="number" id="oni-min" step="0.1" placeholder="Min (-2)"><input type="number" id="oni-max" step="0.1" placeholder="Max (3)"></div>
-        <label>Latitude (°N):</label>
-        <div class="input-row"><input type="number" id="lat-min" step="0.5" placeholder="Min (18)"><input type="number" id="lat-max" step="0.5" placeholder="Max (24)"></div>
-        <label>Longitude (°W):</label>
-        <div class="input-row"><input type="number" id="lon-min" step="0.5" placeholder="Min (-110)"><input type="number" id="lon-max" step="0.5" placeholder="Max (-104)"></div>
+        <div>
+            <h2>Filters</h2>
+            <label>Month:</label>
+            <div class="input-row"><input type="number" id="month-min" min="1" max="12" placeholder="Min (1)"><input type="number" id="month-max" min="1" max="12" placeholder="Max (12)"></div>
+            <label>Sea Surface Temp (°C):</label>
+            <div class="input-row"><input type="number" id="sst-min" step="0.5" placeholder="Min (17)"><input type="number" id="sst-max" step="0.5" placeholder="Max (33)"></div>
+            <label>Sea Level Anomaly (m):</label>
+            <div class="input-row"><input type="number" id="sla-min" step="0.05" placeholder="Min (-0.3)"><input type="number" id="sla-max" step="0.05" placeholder="Max (0.5)"></div>
+            <label>Oceanic Niño Index (2 Mo Lag):</label>
+            <div class="input-row"><input type="number" id="oni-min" step="0.1" placeholder="Min (-2)"><input type="number" id="oni-max" step="0.1" placeholder="Max (3)"></div>
+            <label>Latitude (°N):</label>
+            <div class="input-row"><input type="number" id="lat-min" step="0.5" placeholder="Min (18)"><input type="number" id="lat-max" step="0.5" placeholder="Max (24)"></div>
+            <label>Longitude (°W):</label>
+            <div class="input-row"><input type="number" id="lon-min" step="0.5" placeholder="Min (-110)"><input type="number" id="lon-max" step="0.5" placeholder="Max (-104)"></div>
+        </div>
+
+        <div class="chart-container">
+            <h3 style="font-size: 0.95rem; margin-bottom: 0.2rem;">Concentration Density</h3>
+            <div style="flex: 1; position: relative; min-height: 0;">
+                <canvas id="distChart"></canvas>
+            </div>
+        </div>
     </div>
 
     <div class="data-panel">
@@ -129,12 +162,12 @@
             <div class="stat-card"><div class="stat-label">ONI</div><div class="stat-value env-val" id="oni-range">--</div><div class="stat-label env-mean" id="oni-mean">Mean: --</div></div>
         </div>
 
-        <h3>Top Extremes</h3>
+        <h3 style="margin-top: 0.5rem;">Top Extremes (Click to See Selected Date Map)</h3>
         <div id="table-container">
             <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
                 <thead style="position: sticky; top: 0; z-index: 2; background-color: #f8f9fa;">
                     <tr>
-                        <th style="padding: 6px; border-bottom: 2px solid #ccc; text-align: left;">Month</th>
+                        <th style="padding: 6px; border-bottom: 2px solid #ccc; text-align: left;">Date</th>
                         <th style="padding: 6px; border-bottom: 2px solid #ccc; text-align: right;">Lat</th>
                         <th style="padding: 6px; border-bottom: 2px solid #ccc; text-align: right;">Lon</th>
                         <th style="padding: 6px; border-bottom: 2px solid #ccc; text-align: right;">SST</th>
@@ -150,12 +183,19 @@
 
     <div class="visual-panel">
         <div>
-            <h3>Sample Distribution Map</h3>
+            <h3>Datapoints Meeting Filters</h3>
             <div id="map"></div>
         </div>
-        <div class="chart-container">
-            <h3>Concentration Density</h3>
-            <canvas id="distChart"></canvas>
+        <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <h3 style="margin: 0;">Selected Date Map</h3>
+                <div id="date-controls" style="display: none; align-items: center; gap: 8px;">
+                    <button id="btn-prev" style="padding: 2px 8px; cursor: pointer; border: 1px solid #ccc; border-radius: 4px; background: #fff;">- 8 Days</button>
+                    <span id="current-map-date" style="font-size: 0.85rem; font-weight: bold; color: #0056b3;"></span>
+                    <button id="btn-next" style="padding: 2px 8px; cursor: pointer; border: 1px solid #ccc; border-radius: 4px; background: #fff;">+ 8 Days</button>
+                </div>
+            </div>
+            <div id="daily-map"></div>
         </div>
     </div>
 </div>

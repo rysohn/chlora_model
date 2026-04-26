@@ -2,34 +2,78 @@
 const supabaseUrl = 'https://yagqrtjjaecnvhozegka.supabase.co'; 
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlhZ3FydGpqYWVjbnZob3plZ2thIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyMTMxODMsImV4cCI6MjA5MTc4OTE4M30.GR2xT-qkuJIdc6XHP93BHwKZGVXZ91VmdHWnzkKQIZU'; 
 const _supabase = supabase.createClient(supabaseUrl, supabaseKey);
+
 const GLOBAL_STATS = {
     sst: { mean: 26.39, sd: 2.57 },
     sla: { mean: 0.050, sd: 0.089 },
     oni: { mean: -0.03, sd: 0.84 }
 };
 
-// 2. Initialize Leaflet Map (Centered on Mexico Coast)
+const getGradientColor = (value) => {
+    let hue;
+    
+    if (value <= 0.0) {
+        hue = 0;
+    } else if (value <= 0.5) {
+        const ratio = value / 0.5;
+        hue = ratio * 60;
+    } else if (value < 1.5) {
+        const ratio = (value - 0.5) / 1.0; 
+        hue = 60 + (ratio * 60);
+    } else {
+        hue = 120;
+    }
+    
+    return `hsl(${hue}, 100%, 50%)`;
+};
+
+// 2. Initialize Leaflet Maps (Filtered Map & Daily Map)
 const map = L.map('map').setView([21, -107], 5);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     attribution: 'Tiles &copy; Esri &mdash; Source: Esri'
 }).addTo(map);
 const markerGroup = L.layerGroup().addTo(map);
 
-// Force map to recalculate its size after rendering
-setTimeout(() => { map.invalidateSize(); }, 500);
+const dailyMap = L.map('daily-map').setView([21, -107], 5);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri'
+}).addTo(dailyMap);
+const dailyMarkerGroup = L.layerGroup().addTo(dailyMap);
+
+setTimeout(() => { map.invalidateSize(); dailyMap.invalidateSize(); }, 500);
 
 // 3. Initialize Chart.js Line Graph
 const ctx = document.getElementById('distChart').getContext('2d');
 const distChart = new Chart(ctx, {
     type: 'line',
     data: { labels: [], datasets: [{ label: 'Frequency', data: [], borderColor: '#0056b3', backgroundColor: 'rgba(0, 86, 179, 0.1)', fill: true, tension: 0.4 }] },
-    options: { responsive: true, maintainAspectRatio: false, scales: { x: { title: { display: true, text: 'Chlorophyll-a (mg/m³)' } }, y: { beginAtZero: true, display: false } }, plugins: { legend: { display: false } } }
+    options: { responsive: true, maintainAspectRatio: false, scales: { x: { title: { display: true, text: 'Chlorophyll-a' } }, y: { beginAtZero: true, display: false } }, plugins: { legend: { display: false } } }
 });
 
-
-// 4. Setup Listeners
-const inputs = ['month-min', 'month-max', 'sst-min', 'sst-max', 'sla-min', 'sla-max', 'oni-min', 'oni-max', 'lat-min', 'lat-max', 'lon-min', 'lon-max'];
+// 4. Setup Listeners & Time-Stepping Logic
 let queryTimeout;
+let currentDailyDate = null;
+
+const shiftDate = (days) => {
+    if (!currentDailyDate) return;
+    
+    // Parse the current YYYY-MM-DD string into a strict UTC Date object
+    let d = new Date(currentDailyDate);
+    
+    // Add/Subtract the days using UTC to prevent timezone drift
+    d.setUTCDate(d.getUTCDate() + days);
+    
+    // Format back to YYYY-MM-DD
+    const newDateStr = d.toISOString().split('T')[0];
+    
+    // Load the map with the new date (pass null for the table row, since we clicked a button)
+    loadDailyMap(newDateStr, null);
+};
+
+document.getElementById('btn-prev').addEventListener('click', () => shiftDate(-8));
+document.getElementById('btn-next').addEventListener('click', () => shiftDate(8));
+
+const inputs = ['month-min', 'month-max', 'sst-min', 'sst-max', 'sla-min', 'sla-max', 'oni-min', 'oni-max', 'lat-min', 'lat-max', 'lon-min', 'lon-max'];
 
 inputs.forEach(id => { 
     document.getElementById(id).addEventListener('input', () => {
@@ -40,7 +84,7 @@ inputs.forEach(id => {
     }); 
 });
 
-// 5. The Query Function
+// 5. The Main Query Function
 async function updateDashboard() {
     const dataPanel = document.querySelector('.data-panel');
     const visualPanel = document.querySelector('.visual-panel');
@@ -86,7 +130,6 @@ async function updateDashboard() {
         sdDisplay.innerText = result.sd_chl !== null ? result.sd_chl : "N/A";
         varDisplay.innerText = result.var_chl !== null ? result.var_chl : "N/A";
 
-        // DRAW ENVIRONMENTAL STATS BOXES
         if (result.env_stats) {
             const st = result.env_stats;
             document.getElementById('lat-range').innerText = `${st.lat.min} - ${st.lat.max}`;
@@ -101,10 +144,7 @@ async function updateDashboard() {
             document.getElementById('oni-mean').innerText = `Mean: ${st.oni.mean}`;
         }
 
-        // DRAW TABLE
         if (result.top_points && result.env_stats) {
-            const st = result.env_stats;
-
             const getOutlierStatus = (val, mean, sd) => {
                 if (sd === null || sd === 0 || mean === null) return 'none';
                 if (val > (mean + (2 * sd))) return 'high';
@@ -113,8 +153,8 @@ async function updateDashboard() {
             };
 
             const getOutlierStyle = (status) => {
-                if (status === 'high') return "font-weight: bold; color: #c62828; background-color: #ffebee;"; // Deep Red text, soft red background
-                if (status === 'low')  return "font-weight: bold; color: #1565c0; background-color: #e3f2fd;"; // Deep Blue text, soft blue background
+                if (status === 'high') return "font-weight: bold; color: #c62828; background-color: #ffebee;"; 
+                if (status === 'low')  return "font-weight: bold; color: #1565c0; background-color: #e3f2fd;"; 
                 return "";
             };
 
@@ -125,7 +165,7 @@ async function updateDashboard() {
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td style="padding: 6px; border-bottom: 1px solid #eee; text-align: left;">${pt.month}</td>
+                    <td style="padding: 6px; border-bottom: 1px solid #eee; text-align: left;">${pt.date}</td>
                     <td style="padding: 6px; border-bottom: 1px solid #eee; text-align: right;">${Number(pt.latitude).toFixed(2)}</td>
                     <td style="padding: 6px; border-bottom: 1px solid #eee; text-align: right;">${Number(pt.longitude).toFixed(2)}</td>
                     <td style="padding: 6px; border-bottom: 1px solid #eee; text-align: right; ${getOutlierStyle(sstStatus)}">${Number(pt.sst).toFixed(2)}</td>
@@ -133,16 +173,20 @@ async function updateDashboard() {
                     <td style="padding: 6px; border-bottom: 1px solid #eee; text-align: right; ${getOutlierStyle(oniStatus)}">${Number(pt.oni).toFixed(2)}</td>
                     <td style="padding: 6px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold; color: #0056b3;">${Number(pt.chlor_a).toFixed(2)}</td>
                 `;
+                
+                // Add click listener for daily map drill-down
+                tr.onclick = () => loadDailyMap(pt.date, tr);
+                
                 tbody.appendChild(tr);
             });
         }
-        // UPDATE MAP & CHART
+        
         if (result.map_points && result.map_points.length > 0) {
             let chlorValues = [];
             
             result.map_points.forEach(pt => {
                 chlorValues.push(pt.chlor_a);
-                let color = pt.chlor_a > 1.5 ? '#ff4444' : (pt.chlor_a > 0.5 ? '#ffeb3b' : '#00E676');
+                let color = getGradientColor(pt.chlor_a);
                 L.circleMarker([pt.latitude, pt.longitude], {
                     radius: 3, color: color, fillColor: color, fillOpacity: 0.8, weight: 1
                 }).addTo(markerGroup);
@@ -183,5 +227,50 @@ async function updateDashboard() {
     visualPanel.classList.remove('is-loading');
 }
 
-// 6. Run on load
+// 6. Interactive Drill-Down Function
+async function loadDailyMap(selectedDate, clickedRow = null) {
+    const visualPanel = document.querySelector('.visual-panel');
+    visualPanel.classList.add('is-loading');
+
+    // Update global state and UI controls
+    currentDailyDate = selectedDate;
+    document.getElementById('date-controls').style.display = 'flex';
+    document.getElementById('current-map-date').innerText = selectedDate;
+
+    // UI Polish: Clear all row highlights
+    document.querySelectorAll('#top-points-body tr').forEach(r => r.classList.remove('selected-row'));
+    
+    // Only apply the highlight if the user actually clicked a row (not a button)
+    if (clickedRow) {
+        clickedRow.classList.add('selected-row');
+    }
+
+    // Query Supabase for all coordinates on this exact date
+    const { data, error } = await _supabase
+        .from('ocean_data')
+        .select('latitude, longitude, chlor_a')
+        .eq('date', selectedDate);
+
+    if (error) {
+        console.error("Error fetching daily map:", error);
+        visualPanel.classList.remove('is-loading');
+        return;
+    }
+
+    // Clear the daily map and draw the specific day's data
+    dailyMarkerGroup.clearLayers();
+    
+    if (data && data.length > 0) {
+        data.forEach(pt => {
+            let color = getGradientColor(pt.chlor_a);
+            L.circleMarker([pt.latitude, pt.longitude], {
+                radius: 3, color: color, fillColor: color, fillOpacity: 0.8, weight: 1
+            }).addTo(dailyMarkerGroup);
+        });
+    }
+    
+    visualPanel.classList.remove('is-loading');
+}
+
+// 7. Run on load
 updateDashboard();
