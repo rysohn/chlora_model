@@ -6,7 +6,7 @@ const _supabase = supabase.createClient(supabaseUrl, supabaseKey);
 const GLOBAL_STATS = {
     sst: { mean: 26.39, sd: 2.57 },
     sla: { mean: 0.050, sd: 0.089 },
-    oni: { mean: -0.03, sd: 0.84 }
+    oni: { mean: -0.01, sd: 0.83 }
 };
 
 const getGradientColor = (value) => {

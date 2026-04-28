@@ -625,7 +625,6 @@ set.seed(123)
 
 ocean_df <- master2 %>%
   select(longitude, latitude, chlor_a, date, sst, sla, oni_lag8, month) %>%
-  slice_sample(n=2500000) %>%
   rename(oni = oni_lag8)
 head(ocean_df)
 
