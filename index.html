@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chlorophyll-a Historical Explorer</title>
+    <title>Chlorophyll-a Historical Explorer (2004-2021)</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -108,21 +108,44 @@
             display: flex; 
             flex-direction: column; 
         }
+        .legend-container {
+            background: #f8f9fa;
+            padding: 0.4rem 1rem;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            margin-bottom: 0.5rem;
+            flex: 0 0 auto !important;
+        }
+        .color-bar {
+            height: 12px;
+            border-radius: 6px;
+            background: linear-gradient(to right, hsl(0, 100%, 50%) 0%, hsl(60, 100%, 50%) 46.67%, hsl(120, 100%, 50%) 100%);
+            margin-bottom: 0.3rem;
+        }
+        .legend-labels {
+            position: relative;
+            font-size: 0.75rem;
+            color: #333;
+            font-weight: bold;
+            height: 12px; 
+        }
 
         h2, h3 { margin: 0 0 0.4rem 0; font-size: 1.05rem; }
     </style>
 </head>
 <body>
 
-<h1 class="page-title">Chlorophyll-a Historical Explorer</h1>
-
 <div class="dashboard-layout">
     
     <div class="explorer-panel">
+        <h1 class="page-title" style="font-size: 1.2rem; border-bottom: 2px solid #eee; padding-bottom: 0.5rem; margin-bottom: 0.8rem; color: #0056b3;">
+            Chlorophyll-a Explorer
+        </h1>
+        
         <div>
-            <h2>Filters</h2>
+            <h2 style="margin-top: 0;">Filters</h2>
             <label>Month:</label>
-            <div class="input-row"><input type="number" id="month-min" min="1" max="12" placeholder="Min (1)"><input type="number" id="month-max" min="1" max="12" placeholder="Max (12)"></div>
+            <div class="input-row"><input type="number" id="month-min" min="1" max="12" placeholder="Min (1)" value="4"><input type="number" id="month-max" min="1" max="12" placeholder="Max (12)" value="6"></div>
             <label>Sea Surface Temp (°C):</label>
             <div class="input-row"><input type="number" id="sst-min" step="0.5" placeholder="Min (17)"><input type="number" id="sst-max" step="0.5" placeholder="Max (33)"></div>
             <label>Sea Level Anomaly (m):</label>
@@ -182,6 +205,15 @@
     </div>
 
     <div class="visual-panel">
+        <div class="legend-container">
+            <div style="font-size: 0.85rem; font-weight: bold; margin-bottom: 0.3rem; text-align: center;">Chlorophyll-a Concentration (mg/m³)</div>
+            <div class="color-bar"></div>
+            <div class="legend-labels">
+                <span style="position: absolute; left: 0;">0.0</span>
+                <span style="position: absolute; left: 46.67%; transform: translateX(-50%);">0.7</span>
+                <span style="position: absolute; right: 0;">1.5+</span>
+            </div>
+        </div>
         <div>
             <h3>Datapoints Meeting Filters</h3>
             <div id="map"></div>

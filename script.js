@@ -14,11 +14,11 @@ const getGradientColor = (value) => {
     
     if (value <= 0.0) {
         hue = 0;
-    } else if (value <= 0.5) {
-        const ratio = value / 0.5;
+    } else if (value <= 0.7) {
+        const ratio = value / 0.7;
         hue = ratio * 60;
     } else if (value < 1.5) {
-        const ratio = (value - 0.5) / 1.0; 
+        const ratio = (value - 0.7) / 0.8; 
         hue = 60 + (ratio * 60);
     } else {
         hue = 120;
@@ -80,7 +80,7 @@ inputs.forEach(id => {
         clearTimeout(queryTimeout);
         queryTimeout = setTimeout(() => {
             updateDashboard();
-        }, 600);
+        }, 1500);
     }); 
 });
 
@@ -249,7 +249,8 @@ async function loadDailyMap(selectedDate, clickedRow = null) {
     const { data, error } = await _supabase
         .from('ocean_data')
         .select('latitude, longitude, chlor_a')
-        .eq('date', selectedDate);
+        .eq('date', selectedDate)
+        .limit(30000);
 
     if (error) {
         console.error("Error fetching daily map:", error);
