@@ -28,13 +28,13 @@ const getGradientColor = (value) => {
 };
 
 // 2. Initialize Leaflet Maps (Filtered Map & Daily Map)
-const map = L.map('map').setView([21, -107], 5);
+const map = L.map('map', { preferCanvas: true }).setView([21, -107], 5);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     attribution: 'Tiles &copy; Esri &mdash; Source: Esri'
 }).addTo(map);
 const markerGroup = L.layerGroup().addTo(map);
 
-const dailyMap = L.map('daily-map').setView([21, -107], 5);
+const dailyMap = L.map('daily-map', { preferCanvas: true }).setView([21, -107], 5);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     attribution: 'Tiles &copy; Esri &mdash; Source: Esri'
 }).addTo(dailyMap);
