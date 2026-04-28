@@ -14,11 +14,11 @@ const getGradientColor = (value) => {
     
     if (value <= 0.0) {
         hue = 0;
-    } else if (value <= 0.7) {
-        const ratio = value / 0.7;
+    } else if (value <= 1.0) {
+        const ratio = value / 1.0;
         hue = ratio * 60;
-    } else if (value < 1.5) {
-        const ratio = (value - 0.7) / 0.8; 
+    } else if (value < 2.0) {
+        const ratio = (value - 1.0) / 1.0; 
         hue = 60 + (ratio * 60);
     } else {
         hue = 120;
